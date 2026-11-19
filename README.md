@@ -59,3 +59,10 @@ agy plugin validate ~/.gemini/config/plugins/knowledge-jump --strict
 - **Node.js**（Antigravity MCP 与 Sidecar 运行所需，一般随宿主或本机环境提供）
 - **Python 3**（仅在知识库包含 `.docx` 文件时需要，无需额外 `pip install` 任何第三方包）
 - **可选 BGE 语义向量增强**：默认自带中文分词 BM25 检索即可开箱使用；如需启用本地 ONNX BGE 向量，可配置环境变量 `KB_BGE_PYTHON`、`KB_BGE_WORKER`、`KB_BGE_MODEL`。
+
+---
+
+## 说明与开源协议
+
+- **开发方式**：本项目代码基于 Antigravity（AI 辅助编程）生成与验证；所有文档解析、索引与匹配均在本地离线运行，不会向任何外部第三方接口上传笔记或截图。
+- **开源协议**：基于 [MIT License](LICENSE) 开源。
