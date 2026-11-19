@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KnowledgeJump 双栏对照（免 API 版）</title>
+  <link rel="stylesheet" href="/katex/katex.min.css" />
+  <style>
+    :root {
+      color-scheme: dark light;
+      --bg: #181a1f;
+      --surface: #21252b;
+      --border: #2e3440;
+      --text: #e5e9f0;
+      --muted: #9aa5b1;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --pill-bg: rgba(59, 130, 246, 0.18);
+      --pill-text: #60a5fa;
+      --pill-green-bg: rgba(16, 185, 129, 0.16);
+      --pill-green-text: #34d399;
+      --link: #60a5fa;
+      --heading: #60a5fa;
+      --quote-bg: rgba(59, 130, 246, 0.08);
+      --table-head-bg: rgba(59, 130, 246, 0.14);
+      --code-bg: rgba(128, 128, 128, 0.18);
+      --warn-bg: rgba(245, 158, 11, 0.12);
+      --warn-border: rgba(245, 158, 11, 0.45);
+      --warn-text: #fde68a;
+      --error-bg: rgba(239, 68, 68, 0.12);
+      --error-border: rgba(239, 68, 68, 0.5);
+      --error-text: #fca5a5;
+      --hl-bg: rgba(255, 215, 0, 0.28);
+      --hl-border: #f59e0b;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --surface: #ffffff;
+        --border: #cbd5e1;
+        --text: #0f172a;
+        --muted: #475569;
+        --accent: #2563eb;
+        --accent-hover: #1d4ed8;
+        --pill-bg: #dbeafe;
+        --pill-text: #1d4ed8;
+        --pill-green-bg: #d1fae5;
+        --pill-green-text: #047857;
+        --link: #1d4ed8;
+        --heading: #1e40af;
+        --quote-bg: #eff6ff;
+        --table-head-bg: #eff6ff;
+        --code-bg: rgba(15, 23, 42, 0.07);
+        --warn-bg: #fffbeb;
+        --warn-border: #f59e0b;
+        --warn-text: #92400e;
+        --error-bg: #fef2f2;
+        --error-border: #ef4444;
+        --error-text: #b91c1c;
+        --hl-bg: rgba(250, 204, 21, 0.34);
+        --hl-border: #d97706;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-size: 13px;
+    }
+    .app { display: flex; flex-direction: column; height: 100vh; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; border-bottom: 1px solid var(--border);
+      background: var(--surface); gap: 8px; flex-wrap: wrap;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; }
+    .pill {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      background: var(--pill-bg); color: var(--pill-text); font-weight: 500;
+    }
+    .pill.green { background: var(--pill-green-bg); color: var(--pill-green-text); }
+    .btn-group { display: flex; gap: 6px; }
+    button {
+      cursor: pointer; border: 1px solid var(--border);
+      background: transparent; color: var(--text);
+      padding: 4px 10px; border-radius: 5px; font-size: 12px;
+    }
+    button:hover { background: rgba(128, 128, 128, 0.12); }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+    button.primary:hover { background: var(--accent-hover); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+    @media (max-width: 760px) {
+      .split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+    }
+    .pane { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 12px; }
+    .pane.left { border-right: 1px solid var(--border); }
+    @media (max-width: 760px) {
+      .pane.left { border-right: none; border-bottom: 1px solid var(--border); }
+    }
+
+    .banner {
+      padding: 8px 10px; border-radius: 6px;
+      border: 1px solid var(--warn-border); background: var(--warn-bg); color: var(--warn-text);
+      margin-bottom: 10px; font-size: 12px;
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    }
+    .banner.info {
+      border-color: rgba(59, 130, 246, 0.4);
+      background: var(--quote-bg);
+      color: var(--text);
+    }
+    .banner.error {
+      border-color: var(--error-border);
+      background: var(--error-bg);
+      color: var(--error-text);
+    }
+
+    .input-box {
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px; background: var(--surface); margin-bottom: 12px;
+    }
+    .paste-hint { font-size: 11.5px; color: var(--muted); margin-bottom: 6px; }
+    textarea {
+      width: 100%; min-height: 68px; resize: vertical;
+      border: 1px solid var(--border); border-radius: 5px;
+      background: var(--bg); color: var(--text);
+      padding: 7px 9px; font-family: inherit; font-size: 12.5px;
+    }
+    .actions { display: flex; justify-content: space-between; margin-top: 8px; }
+
+    .cards { display: flex; flex-direction: column; gap: 10px; }
+    .card {
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; background: var(--surface);
+    }
+    .card.clickable { cursor: pointer; }
+    .card.clickable:hover { border-color: var(--accent); }
+    .card-top {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 6px; gap: 6px;
+    }
+    .seg-tag {
+      font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+      background: var(--pill-bg); color: var(--pill-text);
+    }
+    .card-body { line-height: 1.6; word-break: break-word; }
+    .card-foot {
+      margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border);
+      font-size: 11.5px; color: var(--link); font-weight: 500;
+    }
+    .card-foot.muted { color: var(--muted); font-weight: 400; }
+
+    .doc-header {
+      font-weight: 600; font-size: 12.5px; padding-bottom: 8px;
+      margin-bottom: 10px; border-bottom: 1px solid var(--border); color: var(--muted);
+    }
+    .doc-line {
+      padding: 3px 8px; border-radius: 4px; word-break: break-word;
+      font-size: 13px; line-height: 1.7; transition: background-color 0.25s ease;
+    }
+    .doc-line h1, .doc-line h2, .doc-line h3, .doc-line h4 {
+      margin: 8px 0 4px; color: var(--heading); line-height: 1.35;
+    }
+    .doc-line h1 { font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+    .doc-line h2 { font-size: 15px; }
+    .doc-line h3 { font-size: 14px; }
+    .doc-line h4 { font-size: 13px; }
+    .doc-line blockquote {
+      margin: 4px 0; padding: 4px 10px; border-left: 3px solid var(--accent);
+      background: var(--quote-bg); color: var(--muted); border-radius: 0 4px 4px 0;
+    }
+    .doc-line.list-item { padding-left: 18px; position: relative; }
+    .doc-line.list-item::before {
+      content: "•"; position: absolute; left: 6px; color: var(--accent); font-weight: bold;
+    }
+    .doc-line code, .card-body code, .md-table code {
+      background: var(--code-bg); padding: 1px 5px; border-radius: 3px;
+      font-family: "JetBrains Mono", Consolas, monospace; font-size: 12px;
+    }
+    .doc-line .katex-display, .card-body .katex-display {
+      overflow-x: auto; overflow-y: hidden; max-width: 100%;
+      padding: 4px 2px; margin: 6px 0;
+    }
+    .doc-line.hl-amber, tr.hl-amber td, tr.hl-amber th {
+      background-color: var(--hl-bg);
+    }
+    .doc-line.hl-amber { border-left: 3px solid var(--hl-border); }
+    .md-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 8px 0;
+      font-size: 12px;
+      background: var(--surface);
+    }
+    .md-table th, .md-table td {
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .md-table th {
+      background: var(--table-head-bg);
+      font-weight: 600;
+    }
+    .pdf-page {
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px;
+      margin-bottom: 10px; background: var(--surface); transition: background-color 0.25s ease;
+    }
+    .pdf-page.hl-amber { background-color: var(--hl-bg); border-color: var(--hl-border); }
+    .empty { color: var(--muted); text-align: center; padding: 26px 12px; font-size: 12px; }
+
+    .modal-backdrop {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+      align-items: center; justify-content: center; z-index: 99;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      width: min(420px, 92vw); background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px; padding: 16px;
+    }
+    .modal h3 { margin: 0 0 12px; font-size: 14px; }
+    .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .field input {
+      width: 100%; padding: 6px 8px; border: 1px solid var(--border);
+      border-radius: 4px; background: var(--bg); color: var(--text); font-size: 12.5px;
+    }
+    .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">
+        <span>KnowledgeJump</span>
+        <span class="pill green">Antigravity 免 API 版</span>
+        <span id="indexPill" class="pill">加载中...</span>
+      </div>
+      <div class="btn-group">
+        <button id="rebuildBtn">重建索引</button>
+        <button id="settingsBtn">设置目录</button>
+      </div>
+    </div>
+
+    <div class="split">
+      <div class="pane left">
+        <div class="banner info">
+          <span><b>截图识题</b>：直接在左侧 Antigravity 对话框粘贴题目截图，反重力会免 API 识别公式并自动推送到此面板。</span>
+        </div>
+        <div id="banners"></div>
+        <div class="input-box">
+          <div class="paste-hint">文字题干可在此直接离线拆解并匹配知识库（0 API、毫秒级响应）：</div>
+          <textarea id="questionText" placeholder="输入或粘贴题干文字（支持 (1)/(2) 自动拆问）..."></textarea>
+          <div class="actions">
+            <button id="clearBtn">清空</button>
+            <button id="analyzeBtn" class="primary">本地拆解与搜题</button>
+          </div>
+        </div>
+        <div id="results" class="cards">
+          <div class="empty">等待输入文字题干，或在 Antigravity 对话框发送题目截图...</div>
+        </div>
+      </div>
+
+      <div id="docPane" class="pane right">
+        <div class="doc-header" id="docHeader">知识点对照阅读区</div>
+        <div id="docContent">
+          <div class="empty">点击左侧任意题目语义卡片，将在此处平滑滚动定位并高亮 3.5 秒。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal-backdrop">
+    <div class="modal">
+      <h3>知识库目录设置</h3>
+      <div class="field">
+        <label>本地知识库目录绝对路径（存放 .md / .pdf 笔记）</label>
+        <input id="cfgKbDir" type="text" placeholder="例如 D:/knowledge_base" />
+      </div>
+      <div class="modal-foot">
+        <button id="closeModalBtn">取消</button>
+        <button id="saveModalBtn" class="primary">保存并重建索引</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/preload.js"></script>
+  <script src="/katex/katex.min.js"></script>
+  <script src="/katex/contrib/auto-render.min.js"></script>
+  <script>
+    let lastCardsUpdatedAt = 0;
+    let hlTimer = null;
+
+    const indexPill = document.getElementById('indexPill');
+    const bannersEl = document.getElementById('banners');
+    const questionText = document.getElementById('questionText');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const rebuildBtn = document.getElementById('rebuildBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const resultsEl = document.getElementById('results');
+    const docHeader = document.getElementById('docHeader');
+    const docContent = document.getElementById('docContent');
+    const settingsModal = document.getElementById('settingsModal');
+    const cfgKbDir = document.getElementById('cfgKbDir');
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function formatInlineMd(text) {
+      // Protect LaTeX ($$...$$, $...$, \[...\], \(...\)) from Markdown * / _ formatting
+      const mathSlots = [];
+      const protectedText = String(text).replace(/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$[^$\n]+?\$/g, (m) => {
+        const idx = mathSlots.length;
+        mathSlots.push(escapeHtml(m));
+        return `@@MATH_${idx}@@`;
+      });
+
+      let html = escapeHtml(protectedText)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*\n]+?)\*/g, '<em>$1</em>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>');
+
+      html = html.replace(/@@MATH_(\d+)@@/g, (_, i) => mathSlots[Number(i)]);
+      return html;
+    }
+
+    function renderSimpleMd(md) {
+      return formatInlineMd(md).replace(/\n/g, '<br/>');
+    }
+
+    async function apiCall(path, body, method = 'POST') {
+      const token = window.__SIDECAR_TOKEN__ || new URLSearchParams(location.search).get('token') || '';
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['x-sidecar-token'] = token;
+      const res = await fetch(path, {
+        method,
+        headers,
+        body: method === 'GET' ? undefined : JSON.stringify(body || {}),
+      });
+      const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || ('HTTP ' + res.status));
+      return json;
+    }
+
+    function updateStatusUI(state) {
+      const st = state.indexStatus;
+      cfgKbDir.value = state.settings.knowledgeDir || '';
+      indexPill.textContent = st.indexExists
+        ? ('索引: ' + st.chunkCount + ' 切片 / ' + st.fileCount + ' 文件' + (st.embedding?.enabled ? ' · BGE+BM25' : ''))
+        : '未建索引';
+
+      bannersEl.innerHTML = '';
+      if (!st.knowledgeDirExists) {
+        addBanner('知识库目录不存在：' + st.knowledgeDirPath, '设置目录', () => settingsModal.classList.add('open'));
+      } else if (st.chunkCount === 0) {
+        addBanner('知识库尚无索引，请点击重建索引。', '重建索引', doRebuild);
+      }
+    }
+
+    function addBanner(text, btnText, onClick) {
+      const div = document.createElement('div');
+      div.className = 'banner';
+      div.innerHTML = '<span>' + escapeHtml(text) + '</span>';
+      if (btnText) {
+        const b = document.createElement('button');
+        b.textContent = btnText;
+        b.onclick = onClick;
+        div.appendChild(b);
+      }
+      bannersEl.appendChild(div);
+    }
+
+    async function loadState() {
+      const state = await apiCall('/api/state', null, 'GET');
+      updateStatusUI(state);
+      if (state.latestCards && state.latestCards.updatedAt > lastCardsUpdatedAt) {
+        lastCardsUpdatedAt = state.latestCards.updatedAt;
+        renderSegments(state.latestCards.segments);
+      }
+    }
+
+    async function doRebuild() {
+      rebuildBtn.disabled = true;
+      rebuildBtn.textContent = '索引中...';
+      try {
+        await apiCall('/api/rebuild', {});
+        await loadState();
+      } catch (e) {
+        alert('重建索引失败: ' + e.message);
+      } finally {
+        rebuildBtn.disabled = false;
+        rebuildBtn.textContent = '重建索引';
+      }
+    }
+
+    clearBtn.onclick = () => { questionText.value = ''; };
+    rebuildBtn.onclick = doRebuild;
+    settingsBtn.onclick = () => settingsModal.classList.add('open');
+    document.getElementById('closeModalBtn').onclick = () => settingsModal.classList.remove('open');
+    document.getElementById('saveModalBtn').onclick = async () => {
+      await apiCall('/api/settings', { knowledgeDir: cfgKbDir.value.trim() });
+      settingsModal.classList.remove('open');
+      await doRebuild();
+    };
+
+    analyzeBtn.onclick = async () => {
+      const text = questionText.value.trim();
+      if (!text) {
+        resultsEl.innerHTML = '<div class="banner error">请输入题干文字，或直接在 Antigravity 对话框粘贴截图。</div>';
+        return;
+      }
+      analyzeBtn.disabled = true;
+      try {
+        const { segments } = await apiCall('/api/analyze', { text });
+        lastCardsUpdatedAt = Date.now();
+        renderSegments(segments);
+      } catch (e) {
+        resultsEl.innerHTML = '<div class="banner error">' + escapeHtml(e.message) + '</div>';
+      } finally {
+        analyzeBtn.disabled = false;
+      }
+    };
+
+    function renderSegments(segments) {
+      if (!segments || !segments.length) return;
+      resultsEl.innerHTML = '';
+      for (const seg of segments) {
+        const hasMatch = Boolean(seg.matchedChunkId && seg.matchedChunk);
+        const card = document.createElement('div');
+        card.className = hasMatch ? 'card clickable' : 'card';
+        const mc = seg.matchedChunk;
+        const warnNote = mc && mc.isOverdue ? ' ⚠️ [超过复核期 ' + escapeHtml(mc.reviewAfterStr) + ']' : '';
+        const footHtml = hasMatch
+          ? '<div class="card-foot">📌 关联知识点：' + escapeHtml(mc.relativePath) + ' (' + (mc.type === 'markdown' || mc.type === 'docx' ? ('第 ' + ((mc.startLine || 0) + 1) + ' 行') : ('第 ' + (mc.pageNumber || 1) + ' 页')) + ')' + warnNote + '</div>'
+          : '<div class="card-foot muted">未匹配到知识库切片' + (seg.knowledgeTag ? ' · ' + escapeHtml(seg.knowledgeTag) : '') + '</div>';
+
+        card.innerHTML =
+          '<div class="card-top"><span class="seg-tag">' + escapeHtml(seg.segmentType || '题目片段') + '</span>' +
+          '<span style="font-size:11px;color:var(--muted);">' + escapeHtml(seg.knowledgeTag || '') + '</span></div>' +
+          '<div class="card-body">' + renderSimpleMd(seg.text || '') + '</div>' +
+          footHtml;
+
+        if (hasMatch) card.onclick = () => jumpToChunk(seg.matchedChunkId);
+        resultsEl.appendChild(card);
+      }
+      if (typeof renderMathInElement === 'function') {
+        renderMathInElement(resultsEl, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '\\[', right: '\\]', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false }
+          ],
+          throwOnError: false
+        });
+      }
+    }
+
+    async function jumpToChunk(chunkId) {
+      if (hlTimer) { clearTimeout(hlTimer); hlTimer = null; }
+      try {
+        const doc = await apiCall('/api/document', { chunkId });
+        docHeader.textContent = doc.relativePath + ' — ' + doc.headingTitle;
+        docContent.innerHTML = '';
+
+        let scrollTarget = null;
+        if (doc.type === 'markdown') {
+          let idx = 0;
+          while (idx < doc.lines.length) {
+            const line = doc.lines[idx];
+            if (/^\s*\|.*\|\s*$/.test(line)) {
+              const table = document.createElement('table');
+              table.className = 'md-table';
+              let isFirstRow = true;
+              let tbody = null;
+              while (idx < doc.lines.length && /^\s*\|.*\|\s*$/.test(doc.lines[idx])) {
+                const rowLine = doc.lines[idx];
+                const inRange = idx >= doc.startLine && idx <= doc.endLine;
+                const rawCells = rowLine.trim().slice(1, -1).split('|').map((c) => c.trim());
+                const isSep = rawCells.every((c) => /^:?-{2,}:?$/.test(c));
+                if (!isSep) {
+                  const tr = document.createElement('tr');
+                  if (inRange) tr.classList.add('hl-amber');
+                  if (idx === doc.startLine && !scrollTarget) scrollTarget = tr;
+                  if (isFirstRow) {
+                    const thead = document.createElement('thead');
+                    for (const cellText of rawCells) {
+                      const th = document.createElement('th');
+                      th.innerHTML = formatInlineMd(cellText);
+                      tr.appendChild(th);
+                    }
+                    thead.appendChild(tr);
+                    table.appendChild(thead);
+                    isFirstRow = false;
+                  } else {
+                    if (!tbody) {
+                      tbody = document.createElement('tbody');
+                      table.appendChild(tbody);
+                    }
+                    for (const cellText of rawCells) {
+                      const td = document.createElement('td');
+                      td.innerHTML = formatInlineMd(cellText);
+                      tr.appendChild(td);
+                    }
+                    tbody.appendChild(tr);
+                  }
+                }
+                idx++;
+              }
+              docContent.appendChild(table);
+              continue;
+            }
+
+            const div = document.createElement('div');
+            const trimmed = line.trim();
+            // Merge multi-line $$ ... $$ math blocks (e.g. matrices across lines in .md files)
+            const ddCount = (trimmed.match(/\$\$/g) || []).length;
+            if (ddCount % 2 === 1) {
+              const blockStart = idx;
+              const blockLines = [line];
+              let inRange = idx >= doc.startLine && idx <= doc.endLine;
+              idx++;
+              while (idx < doc.lines.length) {
+                const nextLine = doc.lines[idx];
+                blockLines.push(nextLine);
+                if (idx >= doc.startLine && idx <= doc.endLine) inRange = true;
+                const nextDd = (nextLine.match(/\$\$/g) || []).length;
+                idx++;
+                if (nextDd % 2 === 1) break;
+              }
+              div.className = 'doc-line' + (inRange ? ' hl-amber' : '');
+              div.innerHTML = formatInlineMd(blockLines.join('\n'));
+              if (blockStart <= doc.startLine && idx > doc.startLine && !scrollTarget) scrollTarget = div;
+              docContent.appendChild(div);
+              continue;
+            }
+
+            const inRange = idx >= doc.startLine && idx <= doc.endLine;
+            const hMatch = trimmed.match(/^(#{1,4})\s+(.+)$/);
+
+            if (hMatch) {
+              const lvl = hMatch[1].length;
+              div.className = 'doc-line' + (inRange ? ' hl-amber' : '');
+              div.innerHTML = `<h${lvl}>${formatInlineMd(hMatch[2])}</h${lvl}>`;
+            } else if (/^>\s*/.test(trimmed)) {
+              div.className = 'doc-line' + (inRange ? ' hl-amber' : '');
+              div.innerHTML = `<blockquote>${formatInlineMd(trimmed.replace(/^>\s*/, ''))}</blockquote>`;
+            } else if (/^[-*]\s+/.test(trimmed)) {
+              div.className = 'doc-line list-item' + (inRange ? ' hl-amber' : '');
+              div.innerHTML = formatInlineMd(trimmed.replace(/^[-*]\s+/, ''));
+            } else if (/^---+$/.test(trimmed)) {
+              div.className = 'doc-line';
+              div.innerHTML = '<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;" />';
+            } else {
+              div.className = 'doc-line' + (inRange ? ' hl-amber' : '');
+              div.innerHTML = formatInlineMd(line);
+            }
+
+            if (idx === doc.startLine && !scrollTarget) scrollTarget = div;
+            docContent.appendChild(div);
+            idx++;
+          }
+        } else {
+          for (const p of doc.pages) {
+            const box = document.createElement('div');
+            const isTarget = p.pageNumber === doc.targetPage;
+            box.className = 'pdf-page' + (isTarget ? ' hl-amber' : '');
+            box.innerHTML = '<div style="font-weight:600;margin-bottom:4px;">第 ' + p.pageNumber + ' 页</div><div>' + escapeHtml(p.text) + '</div>';
+            if (isTarget) scrollTarget = box;
+            docContent.appendChild(box);
+          }
+        }
+
+        if (typeof renderMathInElement === 'function') {
+          renderMathInElement(docContent, {
+            delimiters: [
+              { left: '$$', right: '$$', display: true },
+              { left: '\\[', right: '\\]', display: true },
+              { left: '$', right: '$', display: false },
+              { left: '\\(', right: '\\)', display: false }
+            ],
+            throwOnError: false
+          });
+        }
+
+        if (scrollTarget) {
+          requestAnimationFrame(() => {
+            const docPane = document.getElementById('docPane');
+            const paneRect = docPane.getBoundingClientRect();
+            const targetRect = scrollTarget.getBoundingClientRect();
+            const nextTop = Math.max(0, docPane.scrollTop + (targetRect.top - paneRect.top) - 110);
+            docPane.scrollTo({ top: nextTop, behavior: 'smooth' });
+          });
+        }
+
+        hlTimer = setTimeout(() => {
+          docContent.querySelectorAll('.hl-amber').forEach((el) => el.classList.remove('hl-amber'));
+        }, 3500);
+      } catch (e) {
+        docContent.innerHTML = '<div class="banner error">' + escapeHtml(e.message) + '</div>';
+      }
+    }
+
+    // Auto-poll for cards pushed by Antigravity MCP
+    setInterval(async () => {
+      try {
+        const data = await apiCall('/api/cards', null, 'GET');
+        if (data && data.updatedAt > lastCardsUpdatedAt) {
+          lastCardsUpdatedAt = data.updatedAt;
+          renderSegments(data.segments);
+        }
+      } catch {
+        // Ignore transient poll errors
+      }
+    }, 1500);
+
+    loadState().catch((e) => {
+      bannersEl.innerHTML = '<div class="banner error">初始化失败: ' + escapeHtml(e.message) + '</div>';
+    });
+  </script>
+</body>
+</html>
