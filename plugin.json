@@ -1,7 +1,7 @@
 {
   "name": "knowledge-jump",
   "displayName": "KnowledgeJump 双栏搜题与知识点对照",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "双栏对照搜题与知识点跳转插件（免外部 API）：支持粘贴题目截图进行多模态 OCR 与 LaTeX 拆解，点击语义卡片联动定位右侧本地知识库（Markdown / Word .docx / PDF）并高亮 3.5 秒。",
   "logo": "assets/logo.svg",
   "suggestedPrompts": [
