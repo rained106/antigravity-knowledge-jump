@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KnowledgeJump 双栏对照（免 API 版）</title>
-  <link rel="stylesheet" href="/katex/katex.min.css" />
+  <link rel="stylesheet" href="/katex/katex-swap.min.css" />
   <style>
     :root {
       color-scheme: dark light;
@@ -95,7 +95,10 @@
     @media (max-width: 760px) {
       .split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
     }
-    .pane { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 12px; }
+    .pane {
+      display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 12px;
+      contain: layout style; will-change: scroll-position;
+    }
     .pane.left { border-right: 1px solid var(--border); }
     @media (max-width: 760px) {
       .pane.left { border-right: none; border-bottom: 1px solid var(--border); }
@@ -160,6 +163,7 @@
     .doc-line {
       padding: 3px 8px; border-radius: 4px; word-break: break-word;
       font-size: 13px; line-height: 1.7; transition: background-color 0.25s ease;
+      contain: layout style; content-visibility: auto; contain-intrinsic-size: auto 28px;
     }
     .doc-line h1, .doc-line h2, .doc-line h3, .doc-line h4 {
       margin: 8px 0 4px; color: var(--heading); line-height: 1.35;
@@ -194,6 +198,9 @@
       margin: 8px 0;
       font-size: 12px;
       background: var(--surface);
+      contain: layout style;
+      content-visibility: auto;
+      contain-intrinsic-size: auto 120px;
     }
     .md-table th, .md-table td {
       border: 1px solid var(--border);
@@ -208,6 +215,7 @@
     .pdf-page {
       padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px;
       margin-bottom: 10px; background: var(--surface); transition: background-color 0.25s ease;
+      contain: layout style; content-visibility: auto; contain-intrinsic-size: auto 220px;
     }
     .pdf-page.hl-amber { background-color: var(--hl-bg); border-color: var(--hl-border); }
     .empty { color: var(--muted); text-align: center; padding: 26px 12px; font-size: 12px; }
@@ -287,11 +295,29 @@
   </div>
 
   <script src="/preload.js"></script>
-  <script src="/katex/katex.min.js"></script>
-  <script src="/katex/contrib/auto-render.min.js"></script>
+  <script defer src="/katex/katex.min.js"></script>
+  <script defer src="/katex/contrib/auto-render.min.js"></script>
   <script>
     let lastCardsUpdatedAt = 0;
     let hlTimer = null;
+    let loadedDocKey = null;
+    let docBlocks = [];
+    let pdfPageMap = new Map();
+    let mathObserver = null;
+    let mathQueue = [];
+    let mathRaf = 0;
+    let isPollingCards = false;
+    const deferredMathContainers = new Set();
+
+    const KATEX_OPTIONS = {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\[', right: '\\]', display: true },
+        { left: '$', right: '$', display: false },
+        { left: '\\(', right: '\\)', display: false }
+      ],
+      throwOnError: false
+    };
 
     const indexPill = document.getElementById('indexPill');
     const bannersEl = document.getElementById('banners');
@@ -301,10 +327,73 @@
     const rebuildBtn = document.getElementById('rebuildBtn');
     const settingsBtn = document.getElementById('settingsBtn');
     const resultsEl = document.getElementById('results');
+    const docPane = document.getElementById('docPane');
     const docHeader = document.getElementById('docHeader');
     const docContent = document.getElementById('docContent');
     const settingsModal = document.getElementById('settingsModal');
     const cfgKbDir = document.getElementById('cfgKbDir');
+
+    function hasMathSyntax(s) {
+      return typeof s === 'string' && (s.includes('$') || s.includes('\\(') || s.includes('\\['));
+    }
+
+    function renderMathNow(el) {
+      if (!el || !el.isConnected) return;
+      if (typeof renderMathInElement !== 'function') {
+        deferredMathContainers.add(el);
+        return;
+      }
+      if (el.dataset && el.dataset.mathPending === '1') {
+        delete el.dataset.mathPending;
+      }
+      renderMathInElement(el, KATEX_OPTIONS);
+    }
+
+    function flushMathQueue() {
+      mathRaf = 0;
+      if (typeof renderMathInElement !== 'function') {
+        for (const el of mathQueue) deferredMathContainers.add(el);
+        mathQueue = [];
+        return;
+      }
+      const start = performance.now();
+      while (mathQueue.length > 0 && performance.now() - start < 10) {
+        const el = mathQueue.shift();
+        if (el && el.isConnected && el.dataset.mathPending === '1') {
+          delete el.dataset.mathPending;
+          renderMathInElement(el, KATEX_OPTIONS);
+        }
+      }
+      if (mathQueue.length > 0) {
+        mathRaf = requestAnimationFrame(flushMathQueue);
+      }
+    }
+
+    function enqueueLazyMath(el) {
+      if (!el || el.dataset.mathPending !== '1') return;
+      mathQueue.push(el);
+      if (!mathRaf) mathRaf = requestAnimationFrame(flushMathQueue);
+    }
+
+    function resetMathObserver() {
+      if (mathObserver) {
+        mathObserver.disconnect();
+        mathObserver = null;
+      }
+      mathQueue = [];
+      if (mathRaf) {
+        cancelAnimationFrame(mathRaf);
+        mathRaf = 0;
+      }
+    }
+
+    function flushDeferredMath() {
+      if (typeof renderMathInElement !== 'function' || deferredMathContainers.size === 0) return;
+      for (const el of deferredMathContainers) renderMathNow(el);
+      deferredMathContainers.clear();
+    }
+    window.addEventListener('DOMContentLoaded', flushDeferredMath);
+    window.addEventListener('load', flushDeferredMath);
 
     function escapeHtml(s) {
       return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -388,6 +477,7 @@
       rebuildBtn.textContent = '索引中...';
       try {
         await apiCall('/api/rebuild', {});
+        loadedDocKey = null;
         await loadState();
       } catch (e) {
         alert('重建索引失败: ' + e.message);
@@ -444,30 +534,86 @@
           '<div class="card-body">' + renderSimpleMd(seg.text || '') + '</div>' +
           footHtml;
 
-        if (hasMatch) card.onclick = () => jumpToChunk(seg.matchedChunkId);
+        if (hasMatch) card.onclick = () => jumpToChunk(seg.matchedChunkId, mc);
         resultsEl.appendChild(card);
       }
-      if (typeof renderMathInElement === 'function') {
-        renderMathInElement(resultsEl, {
-          delimiters: [
-            { left: '$$', right: '$$', display: true },
-            { left: '\\[', right: '\\]', display: true },
-            { left: '$', right: '$', display: false },
-            { left: '\\(', right: '\\)', display: false }
-          ],
-          throwOnError: false
-        });
-      }
+      renderMathNow(resultsEl);
     }
 
-    async function jumpToChunk(chunkId) {
+    function applyHighlightAndScroll(docType, startLine, endLine, targetPage) {
+      if (hlTimer) { clearTimeout(hlTimer); hlTimer = null; }
+      docContent.querySelectorAll('.hl-amber').forEach((el) => el.classList.remove('hl-amber'));
+
+      let scrollTarget = null;
+      if (docType === 'markdown') {
+        const eagerStart = Math.max(0, startLine - 25);
+        const eagerEnd = endLine + 25;
+        for (const blk of docBlocks) {
+          if (blk.end >= startLine && blk.start <= endLine) {
+            blk.el.classList.add('hl-amber');
+            if (!scrollTarget) scrollTarget = blk.el;
+          }
+          if (blk.end >= eagerStart && blk.start <= eagerEnd && blk.el.dataset.mathPending === '1') {
+            renderMathNow(blk.el);
+          }
+        }
+      } else {
+        const pageEl = pdfPageMap.get(targetPage);
+        if (pageEl) {
+          pageEl.classList.add('hl-amber');
+          scrollTarget = pageEl;
+          if (pageEl.dataset.mathPending === '1') renderMathNow(pageEl);
+        }
+      }
+
+      if (scrollTarget) {
+        requestAnimationFrame(() => {
+          const paneRect = docPane.getBoundingClientRect();
+          const targetRect = scrollTarget.getBoundingClientRect();
+          const nextTop = Math.max(0, docPane.scrollTop + (targetRect.top - paneRect.top) - 110);
+          docPane.scrollTo({ top: nextTop, behavior: 'smooth' });
+        });
+      }
+
+      hlTimer = setTimeout(() => {
+        docContent.querySelectorAll('.hl-amber').forEach((el) => el.classList.remove('hl-amber'));
+      }, 3500);
+    }
+
+    async function jumpToChunk(chunkId, matchedChunk = null) {
       if (hlTimer) { clearTimeout(hlTimer); hlTimer = null; }
       try {
-        const doc = await apiCall('/api/document', { chunkId });
-        docHeader.textContent = doc.relativePath + ' — ' + doc.headingTitle;
-        docContent.innerHTML = '';
+        // Fast path: same document already rendered in DOM -> zero network & zero DOM/KaTeX rebuild!
+        if (matchedChunk) {
+          const expectedType = (matchedChunk.type === 'markdown' || matchedChunk.type === 'docx') ? 'markdown' : 'pdf';
+          const expectedKey = expectedType + ':' + matchedChunk.relativePath;
+          if (loadedDocKey === expectedKey) {
+            docHeader.textContent = matchedChunk.relativePath + ' — ' + (matchedChunk.headingTitle || '');
+            applyHighlightAndScroll(
+              expectedType,
+              matchedChunk.startLine ?? 0,
+              matchedChunk.endLine ?? matchedChunk.startLine ?? 0,
+              matchedChunk.pageNumber ?? 1
+            );
+            return;
+          }
+        }
 
-        let scrollTarget = null;
+        const doc = await apiCall('/api/document', { chunkId });
+        const docKey = doc.type + ':' + doc.relativePath;
+        docHeader.textContent = doc.relativePath + ' — ' + doc.headingTitle;
+
+        if (loadedDocKey === docKey) {
+          applyHighlightAndScroll(doc.type, doc.startLine ?? 0, doc.endLine ?? doc.startLine ?? 0, doc.targetPage ?? 1);
+          return;
+        }
+
+        resetMathObserver();
+        docBlocks = [];
+        pdfPageMap = new Map();
+        const frag = document.createDocumentFragment();
+        const lazyMathEls = [];
+
         if (doc.type === 'markdown') {
           let idx = 0;
           while (idx < doc.lines.length) {
@@ -479,13 +625,14 @@
               let tbody = null;
               while (idx < doc.lines.length && /^\s*\|.*\|\s*$/.test(doc.lines[idx])) {
                 const rowLine = doc.lines[idx];
-                const inRange = idx >= doc.startLine && idx <= doc.endLine;
                 const rawCells = rowLine.trim().slice(1, -1).split('|').map((c) => c.trim());
                 const isSep = rawCells.every((c) => /^:?-{2,}:?$/.test(c));
                 if (!isSep) {
                   const tr = document.createElement('tr');
-                  if (inRange) tr.classList.add('hl-amber');
-                  if (idx === doc.startLine && !scrollTarget) scrollTarget = tr;
+                  if (hasMathSyntax(rowLine)) {
+                    tr.dataset.mathPending = '1';
+                    lazyMathEls.push(tr);
+                  }
                   if (isFirstRow) {
                     const thead = document.createElement('thead');
                     for (const cellText of rawCells) {
@@ -508,10 +655,11 @@
                     }
                     tbody.appendChild(tr);
                   }
+                  docBlocks.push({ start: idx, end: idx, el: tr });
                 }
                 idx++;
               }
-              docContent.appendChild(table);
+              frag.appendChild(table);
               continue;
             }
 
@@ -522,101 +670,118 @@
             if (ddCount % 2 === 1) {
               const blockStart = idx;
               const blockLines = [line];
-              let inRange = idx >= doc.startLine && idx <= doc.endLine;
               idx++;
               while (idx < doc.lines.length) {
                 const nextLine = doc.lines[idx];
                 blockLines.push(nextLine);
-                if (idx >= doc.startLine && idx <= doc.endLine) inRange = true;
                 const nextDd = (nextLine.match(/\$\$/g) || []).length;
                 idx++;
                 if (nextDd % 2 === 1) break;
               }
-              div.className = 'doc-line' + (inRange ? ' hl-amber' : '');
-              div.innerHTML = formatInlineMd(blockLines.join('\n'));
-              if (blockStart <= doc.startLine && idx > doc.startLine && !scrollTarget) scrollTarget = div;
-              docContent.appendChild(div);
+              const joined = blockLines.join('\n');
+              div.className = 'doc-line';
+              div.innerHTML = formatInlineMd(joined);
+              div.dataset.mathPending = '1';
+              lazyMathEls.push(div);
+              docBlocks.push({ start: blockStart, end: idx - 1, el: div });
+              frag.appendChild(div);
               continue;
             }
 
-            const inRange = idx >= doc.startLine && idx <= doc.endLine;
             const hMatch = trimmed.match(/^(#{1,4})\s+(.+)$/);
-
             if (hMatch) {
               const lvl = hMatch[1].length;
-              div.className = 'doc-line' + (inRange ? ' hl-amber' : '');
+              div.className = 'doc-line';
               div.innerHTML = `<h${lvl}>${formatInlineMd(hMatch[2])}</h${lvl}>`;
             } else if (/^>\s*/.test(trimmed)) {
-              div.className = 'doc-line' + (inRange ? ' hl-amber' : '');
+              div.className = 'doc-line';
               div.innerHTML = `<blockquote>${formatInlineMd(trimmed.replace(/^>\s*/, ''))}</blockquote>`;
             } else if (/^[-*]\s+/.test(trimmed)) {
-              div.className = 'doc-line list-item' + (inRange ? ' hl-amber' : '');
+              div.className = 'doc-line list-item';
               div.innerHTML = formatInlineMd(trimmed.replace(/^[-*]\s+/, ''));
             } else if (/^---+$/.test(trimmed)) {
               div.className = 'doc-line';
               div.innerHTML = '<hr style="border:none;border-top:1px solid var(--border);margin:6px 0;" />';
             } else {
-              div.className = 'doc-line' + (inRange ? ' hl-amber' : '');
+              div.className = 'doc-line';
               div.innerHTML = formatInlineMd(line);
             }
 
-            if (idx === doc.startLine && !scrollTarget) scrollTarget = div;
-            docContent.appendChild(div);
+            if (hasMathSyntax(line)) {
+              div.dataset.mathPending = '1';
+              lazyMathEls.push(div);
+            }
+            docBlocks.push({ start: idx, end: idx, el: div });
+            frag.appendChild(div);
             idx++;
           }
         } else {
           for (const p of doc.pages) {
             const box = document.createElement('div');
-            const isTarget = p.pageNumber === doc.targetPage;
-            box.className = 'pdf-page' + (isTarget ? ' hl-amber' : '');
+            box.className = 'pdf-page';
             box.innerHTML = '<div style="font-weight:600;margin-bottom:4px;">第 ' + p.pageNumber + ' 页</div><div>' + escapeHtml(p.text) + '</div>';
-            if (isTarget) scrollTarget = box;
-            docContent.appendChild(box);
+            if (hasMathSyntax(p.text)) {
+              box.dataset.mathPending = '1';
+              lazyMathEls.push(box);
+            }
+            pdfPageMap.set(p.pageNumber, box);
+            frag.appendChild(box);
           }
         }
 
-        if (typeof renderMathInElement === 'function') {
-          renderMathInElement(docContent, {
-            delimiters: [
-              { left: '$$', right: '$$', display: true },
-              { left: '\\[', right: '\\]', display: true },
-              { left: '$', right: '$', display: false },
-              { left: '\\(', right: '\\)', display: false }
-            ],
-            throwOnError: false
-          });
-        }
+        docContent.innerHTML = '';
+        docContent.appendChild(frag);
+        loadedDocKey = docKey;
 
-        if (scrollTarget) {
-          requestAnimationFrame(() => {
-            const docPane = document.getElementById('docPane');
-            const paneRect = docPane.getBoundingClientRect();
-            const targetRect = scrollTarget.getBoundingClientRect();
-            const nextTop = Math.max(0, docPane.scrollTop + (targetRect.top - paneRect.top) - 110);
-            docPane.scrollTo({ top: nextTop, behavior: 'smooth' });
-          });
-        }
+        // Immediately highlight + render only formulas near the target range
+        applyHighlightAndScroll(doc.type, doc.startLine ?? 0, doc.endLine ?? doc.startLine ?? 0, doc.targetPage ?? 1);
 
-        hlTimer = setTimeout(() => {
-          docContent.querySelectorAll('.hl-amber').forEach((el) => el.classList.remove('hl-amber'));
-        }, 3500);
+        // Lazily render off-screen formulas only as user scrolls near them
+        if (lazyMathEls.length > 0 && 'IntersectionObserver' in window) {
+          mathObserver = new IntersectionObserver(
+            (entries) => {
+              for (const entry of entries) {
+                if (entry.isIntersecting) {
+                  mathObserver.unobserve(entry.target);
+                  enqueueLazyMath(entry.target);
+                }
+              }
+            },
+            { root: docPane, rootMargin: '450px 0px' }
+          );
+          for (const el of lazyMathEls) {
+            if (el.dataset.mathPending === '1') mathObserver.observe(el);
+          }
+        } else {
+          for (const el of lazyMathEls) enqueueLazyMath(el);
+        }
       } catch (e) {
+        loadedDocKey = null;
         docContent.innerHTML = '<div class="banner error">' + escapeHtml(e.message) + '</div>';
       }
     }
 
-    // Auto-poll for cards pushed by Antigravity MCP
-    setInterval(async () => {
+    // Visibility-aware incremental poll for cards pushed by Antigravity MCP
+    async function pollCards() {
+      if (document.hidden || isPollingCards) return;
+      isPollingCards = true;
       try {
-        const data = await apiCall('/api/cards', null, 'GET');
-        if (data && data.updatedAt > lastCardsUpdatedAt) {
+        const data = await apiCall('/api/cards?since=' + encodeURIComponent(lastCardsUpdatedAt), null, 'GET');
+        if (data && !data.unchanged && data.updatedAt > lastCardsUpdatedAt) {
           lastCardsUpdatedAt = data.updatedAt;
           renderSegments(data.segments);
         }
       } catch {
         // Ignore transient poll errors
+      } finally {
+        isPollingCards = false;
       }
-    }, 1500);
+    }
+
+    setInterval(pollCards, 2000);
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) pollCards();
+    });
 
     loadState().catch((e) => {
       bannersEl.innerHTML = '<div class="banner error">初始化失败: ' + escapeHtml(e.message) + '</div>';

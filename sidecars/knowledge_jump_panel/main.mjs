@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import net from 'node:net';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -72,26 +72,43 @@ async function localAnalyzeText(rawText) {
 
 const app = new SidecarApp();
 
-app.page('/', () => readFileSync(join(__dirname, 'index.html'), 'utf-8'));
+const IMMUTABLE_HEADERS = { 'Cache-Control': 'public, max-age=31536000, immutable' };
+const staticCache = new Map();
+function serveStaticCached(filePath, contentType, headers = IMMUTABLE_HEADERS) {
+  return () => {
+    let body = staticCache.get(filePath);
+    if (body === undefined) {
+      body = readFileSync(filePath);
+      staticCache.set(filePath, body);
+    }
+    return new Response(body, { contentType, headers });
+  };
+}
 
-app.page('/katex/katex.min.css', () =>
-  new Response(readFileSync(join(KATEX_DIR, 'katex.min.css')), { contentType: 'text/css' })
-);
-app.page('/katex/katex.min.js', () =>
-  new Response(readFileSync(join(KATEX_DIR, 'katex.min.js')), { contentType: 'application/javascript' })
-);
-app.page('/katex/contrib/auto-render.min.js', () =>
-  new Response(readFileSync(join(KATEX_DIR, 'contrib', 'auto-render.min.js')), { contentType: 'application/javascript' })
-);
+// Pre-warm core UI assets into RAM once at startup (~300 KB total)
+const indexHtmlPath = join(__dirname, 'index.html');
+const indexHtmlBody = readFileSync(indexHtmlPath, 'utf-8');
+app.page('/', () => new Response(indexHtmlBody, { contentType: 'text/html; charset=utf-8', headers: { 'Cache-Control': 'no-cache' } }));
+
+const katexSwapCss = join(KATEX_DIR, 'katex-swap.min.css');
+const katexCssPath = existsSync(katexSwapCss) ? katexSwapCss : join(KATEX_DIR, 'katex.min.css');
+staticCache.set(katexCssPath, readFileSync(katexCssPath));
+app.page('/katex/katex.min.css', serveStaticCached(katexCssPath, 'text/css; charset=utf-8'));
+app.page('/katex/katex-swap.min.css', serveStaticCached(katexCssPath, 'text/css; charset=utf-8'));
+
+const katexJsPath = join(KATEX_DIR, 'katex.min.js');
+const autoRenderJsPath = join(KATEX_DIR, 'contrib', 'auto-render.min.js');
+staticCache.set(katexJsPath, readFileSync(katexJsPath));
+staticCache.set(autoRenderJsPath, readFileSync(autoRenderJsPath));
+app.page('/katex/katex.min.js', serveStaticCached(katexJsPath, 'application/javascript; charset=utf-8'));
+app.page('/katex/contrib/auto-render.min.js', serveStaticCached(autoRenderJsPath, 'application/javascript; charset=utf-8'));
 
 const fontsDir = join(KATEX_DIR, 'fonts');
 if (existsSync(fontsDir)) {
   for (const fontFile of readdirSync(fontsDir)) {
     const ext = extname(fontFile).toLowerCase();
     const mime = ext === '.woff2' ? 'font/woff2' : ext === '.woff' ? 'font/woff' : 'font/ttf';
-    app.page(`/katex/fonts/${fontFile}`, () =>
-      new Response(readFileSync(join(fontsDir, fontFile)), { contentType: mime })
-    );
+    app.page(`/katex/fonts/${fontFile}`, serveStaticCached(join(fontsDir, fontFile), mime));
   }
 }
 
@@ -101,7 +118,14 @@ app.api('/api/state', async () => ({
   latestCards: loadLatestCards(),
 }), 'GET');
 
-app.api('/api/cards', async () => loadLatestCards(), 'GET');
+app.api('/api/cards', async (data) => {
+  const latest = loadLatestCards();
+  const since = Number(data?.since || 0);
+  if (since > 0 && latest && latest.updatedAt <= since) {
+    return { unchanged: true, updatedAt: latest.updatedAt };
+  }
+  return latest;
+}, 'GET');
 
 app.api('/api/settings', async (data) => ({
   settings: saveSettings(data),
@@ -116,6 +140,17 @@ app.api('/api/analyze', async (data) => ({
   segments: await localAnalyzeText(data?.text || ''),
 }));
 
+const mdLinesCache = new Map();
+function getMarkdownLines(filePath) {
+  const st = statSync(filePath);
+  const cached = mdLinesCache.get(filePath);
+  if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.lines;
+  const lines = readFileSync(filePath, 'utf-8').split(/\r?\n/);
+  if (mdLinesCache.size > 32) mdLinesCache.delete(mdLinesCache.keys().next().value);
+  mdLinesCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, lines });
+  return lines;
+}
+
 app.api('/api/document', async (data) => {
   const idx = loadIndex();
   const chunk = idx?.chunks?.find((c) => c.id === data?.chunkId);
@@ -126,7 +161,7 @@ app.api('/api/document', async (data) => {
     const lines =
       chunk.type === 'docx'
         ? getDocxLines(chunk.filePath)
-        : readFileSync(chunk.filePath, 'utf-8').split(/\r?\n/);
+        : getMarkdownLines(chunk.filePath);
     return {
       type: 'markdown',
       relativePath: chunk.relativePath,

@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { dirname, extname, join, relative } from 'node:path';
@@ -15,24 +15,41 @@ export const CARDS_PATH = join(PLUGIN_DIR, 'latest_cards.json');
 const LOCAL_BGE_PYTHON = process.env.KB_BGE_PYTHON || 'D:/QQAgent/.venv/Scripts/python.exe';
 const LOCAL_BGE_WORKER = process.env.KB_BGE_WORKER || 'D:/AntigravityMemory/tools/bge_embed_worker.py';
 const LOCAL_BGE_MODEL = process.env.KB_BGE_MODEL || 'D:/AntigravityMemory/models/bge-small-zh-v1.5/onnx/model_quantized.onnx';
+const SHARED_BGE_HTTP = (process.env.BGE_EMBED_URL || 'http://127.0.0.1:18765/v1').replace(/\/+$/, '');
 const BGE_MODEL_TAG = 'local:bge-small-zh-v1.5';
 const RRF_K = 60;
 
 const require = createRequire(import.meta.url);
-let pdfParse = null;
-for (const candidate of [
+const PDF_PARSE_CANDIDATES = [
   join(PLUGIN_DIR, 'node_modules', 'pdf-parse', 'index.js'),
   'D:/knowledge-jump-ext/node_modules/pdf-parse/index.js',
-]) {
-  if (existsSync(candidate)) {
-    try {
-      pdfParse = require(candidate);
-      break;
-    } catch {
-      // Ignore load failure
+];
+let pdfParseLoaded = false;
+let pdfParse = null;
+
+function hasPdfParser() {
+  return pdfParseLoaded ? Boolean(pdfParse) : PDF_PARSE_CANDIDATES.some((p) => existsSync(p));
+}
+
+function getPdfParser() {
+  if (pdfParseLoaded) return pdfParse;
+  pdfParseLoaded = true;
+  for (const candidate of PDF_PARSE_CANDIDATES) {
+    if (existsSync(candidate)) {
+      try {
+        pdfParse = require(candidate);
+        break;
+      } catch {
+        // Ignore load failure
+      }
     }
   }
+  return pdfParse;
 }
+
+let indexCache = { mtimeMs: -1, size: -1, data: null };
+let cardsCache = { mtimeMs: -1, size: -1, data: null };
+const docxLinesCache = new Map(); // filePath -> { mtimeMs, size, lines }
 
 export const DEFAULT_SETTINGS = {
   knowledgeDir: existsSync('D:/knowledge_base') ? 'D:/knowledge_base' : join(homedir(), 'knowledge_base'),
@@ -59,11 +76,17 @@ export function saveSettings(next) {
 }
 
 export function loadIndex() {
-  if (!existsSync(INDEX_PATH)) return null;
   try {
+    const st = statSync(INDEX_PATH);
+    if (indexCache.data && indexCache.mtimeMs === st.mtimeMs && indexCache.size === st.size) {
+      return indexCache.data;
+    }
     const p = JSON.parse(readFileSync(INDEX_PATH, 'utf-8'));
-    return Array.isArray(p?.chunks) ? p : null;
+    const valid = Array.isArray(p?.chunks) ? p : null;
+    indexCache = { mtimeMs: st.mtimeMs, size: st.size, data: valid };
+    return valid;
   } catch {
+    indexCache = { mtimeMs: -1, size: -1, data: null };
     return null;
   }
 }
@@ -79,7 +102,7 @@ export function getIndexStatus() {
     chunkCount: idx ? idx.chunks.length : 0,
     fileCount: idx ? new Set(idx.chunks.map((c) => c.filePath)).size : 0,
     generatedAt: idx?.generatedAt ?? null,
-    pdfSupported: Boolean(pdfParse),
+    pdfSupported: hasPdfParser(),
     embedding: idx?.embedding ?? { enabled: false, model: '', dims: 0 },
   };
 }
@@ -91,6 +114,10 @@ const bgePending = new Map();
 
 export function hasLocalBge() {
   return existsSync(LOCAL_BGE_PYTHON) && existsSync(LOCAL_BGE_WORKER) && existsSync(LOCAL_BGE_MODEL);
+}
+
+function hasBgeBackend() {
+  return Boolean(SHARED_BGE_HTTP && process.env.BGE_EMBED_DISABLE_HTTP !== '1') || hasLocalBge();
 }
 
 export function shutdownEmbedder() {
@@ -150,8 +177,35 @@ function ensureBgeWorker() {
   return child;
 }
 
+async function embedSharedHttpBge(texts, isQuery = false) {
+  if (!SHARED_BGE_HTTP || process.env.BGE_EMBED_DISABLE_HTTP === '1') return null;
+  try {
+    const out = [];
+    for (let i = 0; i < texts.length; i += 32) {
+      const batch = texts.slice(i, i + 32);
+      const res = await fetch(`${SHARED_BGE_HTTP}/embeddings`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'bge-small-zh-v1.5', input: batch, is_query: Boolean(isQuery) }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) return null;
+      const j = await res.json();
+      if (!Array.isArray(j.data) || j.data.length !== batch.length) return null;
+      j.data.sort((a, b) => a.index - b.index);
+      out.push(...j.data.map((d) => d.embedding));
+    }
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 async function embedTexts(texts, isQuery = false) {
-  if (!hasLocalBge() || !texts.length) return null;
+  if (!texts.length) return null;
+  const shared = await embedSharedHttpBge(texts, isQuery);
+  if (shared) return shared;
+  if (!hasLocalBge()) return null;
   const child = ensureBgeWorker();
   const out = [];
   for (let i = 0; i < texts.length; i += 32) {
@@ -239,6 +293,16 @@ function collectFiles(dir) {
 }
 
 export function getDocxLines(filePath) {
+  let st = null;
+  try {
+    st = statSync(filePath);
+    const cached = docxLinesCache.get(filePath);
+    if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+      return cached.lines;
+    }
+  } catch {
+    // Let parser throw standard file error if unreadable
+  }
   const candidates = [
     process.env.KB_PYTHON,
     process.env.KB_BGE_PYTHON,
@@ -253,7 +317,12 @@ export function getDocxLines(filePath) {
         encoding: 'utf-8',
         maxBuffer: 20 * 1024 * 1024,
       });
-      return JSON.parse(out);
+      const lines = JSON.parse(out);
+      if (st) {
+        if (docxLinesCache.size > 16) docxLinesCache.delete(docxLinesCache.keys().next().value);
+        docxLinesCache.set(filePath, { mtimeMs: st.mtimeMs, size: st.size, lines });
+      }
+      return lines;
     } catch (err) {
       lastErr = err;
       if (err && err.code === 'ENOENT') continue;
@@ -361,12 +430,13 @@ function parseDocx(filePath, relativePath) {
 }
 
 async function parsePdf(filePath, relativePath) {
-  if (!pdfParse) return [];
+  const parser = getPdfParser();
+  if (!parser) return [];
   const chunks = [];
   const meta = { status: 'active', supersededBy: '', reviewAfterMs: null, reviewAfterStr: '' };
   try {
     const pages = [];
-    await pdfParse(readFileSync(filePath), {
+    await parser(readFileSync(filePath), {
       pagerender: async (pageData) => {
         const content = await pageData.getTextContent({ normalizeWhitespace: true });
         const pageText = content.items.map((item) => item.str).join(' ').replace(/\s+/g, ' ').trim();
@@ -413,7 +483,7 @@ export async function rebuildIndex(customDir) {
   }
 
   let embeddingMeta = { enabled: false, model: '', dims: 0 };
-  if (chunks.length > 0 && hasLocalBge()) {
+  if (chunks.length > 0 && hasBgeBackend()) {
     try {
       const vecs = await embedTexts(
         chunks.map((c) => `${c.relativePath}\n${c.headingTitle}\n${c.text}`.slice(0, 1500)),
@@ -511,7 +581,7 @@ export async function searchChunks(query, topK = 15, includeInactive = false) {
   });
 
   let qv = null;
-  if (idx?.embedding?.enabled && hasLocalBge()) {
+  if (idx?.embedding?.enabled && hasBgeBackend()) {
     try {
       const res = await embedTexts([q], true);
       qv = res?.[0] || null;
@@ -616,10 +686,16 @@ export function pushCards(segments, source = 'antigravity') {
 }
 
 export function loadLatestCards() {
-  if (!existsSync(CARDS_PATH)) return { updatedAt: 0, source: '', segments: [] };
   try {
-    return JSON.parse(readFileSync(CARDS_PATH, 'utf-8'));
+    const st = statSync(CARDS_PATH);
+    if (cardsCache.data && cardsCache.mtimeMs === st.mtimeMs && cardsCache.size === st.size) {
+      return cardsCache.data;
+    }
+    const parsed = JSON.parse(readFileSync(CARDS_PATH, 'utf-8'));
+    cardsCache = { mtimeMs: st.mtimeMs, size: st.size, data: parsed };
+    return parsed;
   } catch {
+    cardsCache = { mtimeMs: -1, size: -1, data: null };
     return { updatedAt: 0, source: '', segments: [] };
   }
 }
