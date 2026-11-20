@@ -89,7 +89,50 @@
     button:hover { background: rgba(128, 128, 128, 0.12); }
     button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
     button.primary:hover { background: var(--accent-hover); }
+    button.danger { color: var(--error-text); border-color: var(--error-border); }
+    button.danger:hover { background: var(--error-bg); }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .mode-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-top: 8px; flex-wrap: wrap;
+      font-size: 11.5px; color: var(--muted);
+    }
+    .mode-switch {
+      display: inline-flex; border: 1px solid var(--border); border-radius: 6px;
+      overflow: hidden; background: var(--bg);
+    }
+    .mode-switch button {
+      border: none; border-radius: 0; padding: 3px 9px; font-size: 11.5px;
+      color: var(--muted); background: transparent;
+    }
+    .mode-switch button + button { border-left: 1px solid var(--border); }
+    .mode-switch button.active {
+      background: var(--accent); color: #fff; font-weight: 500;
+    }
+
+    .cards-toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 8px; padding: 6px 10px;
+      border: 1px solid var(--border); border-radius: 7px;
+      background: var(--surface); font-size: 12px; color: var(--muted);
+    }
+    .cards-toolbar .summary { font-weight: 500; color: var(--text); }
+
+    .problem-group-header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 4px 8px; margin-top: 4px;
+      border-left: 3px solid var(--accent);
+      background: var(--quote-bg); border-radius: 0 5px 5px 0;
+      font-size: 11.5px; color: var(--muted);
+    }
+    .problem-group-header:first-child { margin-top: 0; }
+    .problem-group-title { font-weight: 600; color: var(--text); }
+    .problem-group-meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .problem-group-remove {
+      padding: 1px 6px; font-size: 11px; border-color: transparent; color: var(--muted);
+    }
+    .problem-group-remove:hover { color: var(--error-text); background: var(--error-bg); }
 
     .split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
     @media (max-width: 760px) {
@@ -261,10 +304,22 @@
         <div class="input-box">
           <div class="paste-hint">文字题干可在此直接离线拆解并匹配知识库（0 API、毫秒级响应）：</div>
           <textarea id="questionText" placeholder="输入或粘贴题干文字（支持 (1)/(2) 自动拆问）..."></textarea>
-          <div class="actions">
-            <button id="clearBtn">清空</button>
-            <button id="analyzeBtn" class="primary">本地拆解与搜题</button>
+          <div class="mode-row">
+            <span title="同时对反重力对话截图推送与本地文字拆解生效">新题导入方式（对截图推送同样生效）：</span>
+            <div class="mode-switch" role="group" aria-label="新题导入方式">
+              <button type="button" id="modeReplaceBtn" data-mode="replace">清空旧题</button>
+              <button type="button" id="modeAppendBtn" data-mode="append">接在旧题后</button>
+            </div>
           </div>
+          <div class="actions">
+            <button id="clearBtn">清空输入</button>
+            <button id="analyzeBtn" class="primary">本地拆解（清空旧题）</button>
+          </div>
+        </div>
+        <div id="actionError"></div>
+        <div id="cardsToolbar" class="cards-toolbar" style="display:none;">
+          <span id="cardsSummary" class="summary"></span>
+          <button id="clearCardsBtn" class="danger">清空全部旧题</button>
         </div>
         <div id="results" class="cards">
           <div class="empty">等待输入文字题干，或在 Antigravity 对话框发送题目截图...</div>
@@ -299,6 +354,7 @@
   <script defer src="/katex/contrib/auto-render.min.js"></script>
   <script>
     let lastCardsUpdatedAt = 0;
+    let importMode = 'replace';
     let hlTimer = null;
     let loadedDocKey = null;
     let docBlocks = [];
@@ -321,9 +377,15 @@
 
     const indexPill = document.getElementById('indexPill');
     const bannersEl = document.getElementById('banners');
+    const actionErrorEl = document.getElementById('actionError');
     const questionText = document.getElementById('questionText');
     const analyzeBtn = document.getElementById('analyzeBtn');
     const clearBtn = document.getElementById('clearBtn');
+    const modeReplaceBtn = document.getElementById('modeReplaceBtn');
+    const modeAppendBtn = document.getElementById('modeAppendBtn');
+    const cardsToolbar = document.getElementById('cardsToolbar');
+    const cardsSummary = document.getElementById('cardsSummary');
+    const clearCardsBtn = document.getElementById('clearCardsBtn');
     const rebuildBtn = document.getElementById('rebuildBtn');
     const settingsBtn = document.getElementById('settingsBtn');
     const resultsEl = document.getElementById('results');
@@ -435,9 +497,32 @@
       return json;
     }
 
+    function showActionError(msg) {
+      actionErrorEl.innerHTML = msg ? '<div class="banner error">' + escapeHtml(msg) + '</div>' : '';
+    }
+
+    function updateImportModeUI(mode) {
+      importMode = mode === 'append' ? 'append' : 'replace';
+      modeReplaceBtn.classList.toggle('active', importMode === 'replace');
+      modeAppendBtn.classList.toggle('active', importMode === 'append');
+      analyzeBtn.textContent = importMode === 'append' ? '本地拆解（接在旧题后）' : '本地拆解（清空旧题）';
+    }
+
+    async function setImportMode(mode) {
+      const next = mode === 'append' ? 'append' : 'replace';
+      updateImportModeUI(next);
+      showActionError('');
+      try {
+        await apiCall('/api/settings', { importMode: next });
+      } catch (e) {
+        showActionError('保存导入方式失败：' + e.message);
+      }
+    }
+
     function updateStatusUI(state) {
       const st = state.indexStatus;
       cfgKbDir.value = state.settings.knowledgeDir || '';
+      updateImportModeUI(state.settings.importMode || 'replace');
       indexPill.textContent = st.indexExists
         ? ('索引: ' + st.chunkCount + ' 切片 / ' + st.fileCount + ' 文件' + (st.embedding?.enabled ? ' · BGE+BM25' : ''))
         : '未建索引';
@@ -487,12 +572,30 @@
       }
     }
 
-    clearBtn.onclick = () => { questionText.value = ''; };
+    modeReplaceBtn.onclick = () => setImportMode('replace');
+    modeAppendBtn.onclick = () => setImportMode('append');
+    clearBtn.onclick = () => {
+      questionText.value = '';
+      showActionError('');
+    };
+    clearCardsBtn.onclick = async () => {
+      clearCardsBtn.disabled = true;
+      showActionError('');
+      try {
+        const res = await apiCall('/api/cards/clear', {});
+        lastCardsUpdatedAt = res.updatedAt || Date.now();
+        renderSegments([]);
+      } catch (e) {
+        showActionError('清空旧题失败：' + e.message);
+      } finally {
+        clearCardsBtn.disabled = false;
+      }
+    };
     rebuildBtn.onclick = doRebuild;
     settingsBtn.onclick = () => settingsModal.classList.add('open');
     document.getElementById('closeModalBtn').onclick = () => settingsModal.classList.remove('open');
     document.getElementById('saveModalBtn').onclick = async () => {
-      await apiCall('/api/settings', { knowledgeDir: cfgKbDir.value.trim() });
+      await apiCall('/api/settings', { knowledgeDir: cfgKbDir.value.trim(), importMode });
       settingsModal.classList.remove('open');
       await doRebuild();
     };
@@ -500,44 +603,118 @@
     analyzeBtn.onclick = async () => {
       const text = questionText.value.trim();
       if (!text) {
-        resultsEl.innerHTML = '<div class="banner error">请输入题干文字，或直接在 Antigravity 对话框粘贴截图。</div>';
+        showActionError('请输入题干文字，或直接在 Antigravity 对话框粘贴截图。');
         return;
       }
+      showActionError('');
       analyzeBtn.disabled = true;
       try {
-        const { segments } = await apiCall('/api/analyze', { text });
-        lastCardsUpdatedAt = Date.now();
-        renderSegments(segments);
+        const res = await apiCall('/api/analyze', { text, mode: importMode });
+        lastCardsUpdatedAt = res.updatedAt || Date.now();
+        renderSegments(res.segments, {
+          scrollToGroupId: res.mode === 'append' ? res.lastAddedGroupId : '',
+        });
       } catch (e) {
-        resultsEl.innerHTML = '<div class="banner error">' + escapeHtml(e.message) + '</div>';
+        showActionError(e.message);
       } finally {
         analyzeBtn.disabled = false;
       }
     };
 
-    function renderSegments(segments) {
-      if (!segments || !segments.length) return;
-      resultsEl.innerHTML = '';
-      for (const seg of segments) {
-        const hasMatch = Boolean(seg.matchedChunkId && seg.matchedChunk);
-        const card = document.createElement('div');
-        card.className = hasMatch ? 'card clickable' : 'card';
-        const mc = seg.matchedChunk;
-        const warnNote = mc && mc.isOverdue ? ' ⚠️ [超过复核期 ' + escapeHtml(mc.reviewAfterStr) + ']' : '';
-        const footHtml = hasMatch
-          ? '<div class="card-foot">📌 关联知识点：' + escapeHtml(mc.relativePath) + ' (' + (mc.type === 'markdown' || mc.type === 'docx' ? ('第 ' + ((mc.startLine || 0) + 1) + ' 行') : ('第 ' + (mc.pageNumber || 1) + ' 页')) + ')' + warnNote + '</div>'
-          : '<div class="card-foot muted">未匹配到知识库切片' + (seg.knowledgeTag ? ' · ' + escapeHtml(seg.knowledgeTag) : '') + '</div>';
-
-        card.innerHTML =
-          '<div class="card-top"><span class="seg-tag">' + escapeHtml(seg.segmentType || '题目片段') + '</span>' +
-          '<span style="font-size:11px;color:var(--muted);">' + escapeHtml(seg.knowledgeTag || '') + '</span></div>' +
-          '<div class="card-body">' + renderSimpleMd(seg.text || '') + '</div>' +
-          footHtml;
-
-        if (hasMatch) card.onclick = () => jumpToChunk(seg.matchedChunkId, mc);
-        resultsEl.appendChild(card);
+    async function removeGroup(groupId) {
+      showActionError('');
+      try {
+        const res = await apiCall('/api/cards/remove-group', { groupId });
+        lastCardsUpdatedAt = res.updatedAt || Date.now();
+        renderSegments(res.segments);
+      } catch (e) {
+        showActionError('移除题目失败：' + e.message);
       }
+    }
+
+    function groupSegments(segments) {
+      const groups = [];
+      const byId = new Map();
+      for (const seg of segments) {
+        const gid = seg.groupId || 'legacy';
+        let grp = byId.get(gid);
+        if (!grp) {
+          grp = { id: gid, title: seg.groupTitle || '', items: [] };
+          byId.set(gid, grp);
+          groups.push(grp);
+        }
+        if (!grp.title && seg.groupTitle) grp.title = seg.groupTitle;
+        grp.items.push(seg);
+      }
+      return groups;
+    }
+
+    function renderSegments(segments, opts = {}) {
+      if (!segments || !segments.length) {
+        cardsToolbar.style.display = 'none';
+        resultsEl.innerHTML = '<div class="empty">等待输入文字题干，或在 Antigravity 对话框发送题目截图...</div>';
+        return;
+      }
+
+      const groups = groupSegments(segments);
+      cardsSummary.textContent = '共 ' + groups.length + ' 道题 · ' + segments.length + ' 张卡片';
+      cardsToolbar.style.display = 'flex';
+      resultsEl.innerHTML = '';
+
+      let scrollHeaderEl = null;
+      groups.forEach((grp, gIdx) => {
+        const hdr = document.createElement('div');
+        hdr.className = 'problem-group-header';
+        hdr.dataset.groupId = grp.id;
+        const meta = document.createElement('div');
+        meta.className = 'problem-group-meta';
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'problem-group-title';
+        titleSpan.textContent = grp.title ? ('题目 ' + (gIdx + 1) + ' · ' + grp.title) : ('题目 ' + (gIdx + 1));
+        const countSpan = document.createElement('span');
+        countSpan.textContent = '(' + grp.items.length + ' 张卡片)';
+        meta.appendChild(titleSpan);
+        meta.appendChild(countSpan);
+
+        const rmBtn = document.createElement('button');
+        rmBtn.type = 'button';
+        rmBtn.className = 'problem-group-remove';
+        rmBtn.textContent = '移除本题';
+        rmBtn.onclick = () => removeGroup(grp.id);
+
+        hdr.appendChild(meta);
+        hdr.appendChild(rmBtn);
+        resultsEl.appendChild(hdr);
+
+        if (opts.scrollToGroupId && grp.id === opts.scrollToGroupId) {
+          scrollHeaderEl = hdr;
+        }
+
+        for (const seg of grp.items) {
+          const hasMatch = Boolean(seg.matchedChunkId && seg.matchedChunk);
+          const card = document.createElement('div');
+          card.className = hasMatch ? 'card clickable' : 'card';
+          const mc = seg.matchedChunk;
+          const warnNote = mc && mc.isOverdue ? ' ⚠️ [超过复核期 ' + escapeHtml(mc.reviewAfterStr) + ']' : '';
+          const footHtml = hasMatch
+            ? '<div class="card-foot">📌 关联知识点：' + escapeHtml(mc.relativePath) + ' (' + (mc.type === 'markdown' || mc.type === 'docx' ? ('第 ' + ((mc.startLine || 0) + 1) + ' 行') : ('第 ' + (mc.pageNumber || 1) + ' 页')) + ')' + warnNote + '</div>'
+            : '<div class="card-foot muted">未匹配到知识库切片' + (seg.knowledgeTag ? ' · ' + escapeHtml(seg.knowledgeTag) : '') + '</div>';
+
+          card.innerHTML =
+            '<div class="card-top"><span class="seg-tag">' + escapeHtml(seg.segmentType || '题目片段') + '</span>' +
+            '<span style="font-size:11px;color:var(--muted);">' + escapeHtml(seg.knowledgeTag || '') + '</span></div>' +
+            '<div class="card-body">' + renderSimpleMd(seg.text || '') + '</div>' +
+            footHtml;
+
+          if (hasMatch) card.onclick = () => jumpToChunk(seg.matchedChunkId, mc);
+          resultsEl.appendChild(card);
+        }
+      });
+
       renderMathNow(resultsEl);
+      if (scrollHeaderEl) {
+        requestAnimationFrame(() => scrollHeaderEl.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+      }
     }
 
     function applyHighlightAndScroll(docType, startLine, endLine, targetPage) {
@@ -769,7 +946,9 @@
         const data = await apiCall('/api/cards?since=' + encodeURIComponent(lastCardsUpdatedAt), null, 'GET');
         if (data && !data.unchanged && data.updatedAt > lastCardsUpdatedAt) {
           lastCardsUpdatedAt = data.updatedAt;
-          renderSegments(data.segments);
+          renderSegments(data.segments, {
+            scrollToGroupId: data.mode === 'append' ? data.lastAddedGroupId : '',
+          });
         }
       } catch {
         // Ignore transient poll errors

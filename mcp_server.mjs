@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline';
-import { pushCards, rebuildIndex, searchChunks, shutdownEmbedder } from './kb_engine.mjs';
+import { clearCards, pushCards, rebuildIndex, searchChunks, shutdownEmbedder } from './kb_engine.mjs';
 
 const TOOLS = [
   {
@@ -31,7 +31,8 @@ const TOOLS = [
   },
   {
     name: 'kj_push_cards',
-    description: 'Push Antigravity-analyzed problem segments (with LaTeX and matchedChunkId) into the KnowledgeJump Sidecar UI.',
+    description:
+      'Push Antigravity-analyzed problem segments (with LaTeX and matchedChunkId) into the KnowledgeJump Sidecar UI. Supports append or replace mode.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -48,8 +49,26 @@ const TOOLS = [
             required: ['text', 'segmentType'],
           },
         },
+        mode: {
+          type: 'string',
+          enum: ['append', 'replace'],
+          description:
+            "Optional import mode: 'append' to add after existing problems, 'replace' to clear old problems first. Omit to follow the user's selected mode in the KnowledgeJump panel.",
+        },
+        title: {
+          type: 'string',
+          description: 'Optional short title for this problem group (e.g., "第3章 应力张量计算题").',
+        },
       },
       required: ['segments'],
+    },
+  },
+  {
+    name: 'kj_clear_cards',
+    description: 'Clear all existing problem cards from the KnowledgeJump Sidecar UI.',
+    inputSchema: {
+      type: 'object',
+      properties: {},
     },
   },
 ];
@@ -94,7 +113,20 @@ rl.on('line', async (line) => {
       } else if (name === 'kj_rebuild_index') {
         out = await rebuildIndex(args.knowledge_dir);
       } else if (name === 'kj_push_cards') {
-        out = pushCards(args.segments, 'antigravity');
+        const res = pushCards(args.segments, 'antigravity', {
+          mode: args.mode,
+          title: args.title,
+        });
+        out = {
+          pushed: res.pushed,
+          total: res.total,
+          mode: res.mode,
+          groupId: res.groupId,
+          updatedAt: res.updatedAt,
+        };
+      } else if (name === 'kj_clear_cards') {
+        const res = clearCards('antigravity');
+        out = { cleared: res.cleared, updatedAt: res.updatedAt };
       } else {
         throw new Error(`Unknown tool: ${name}`);
       }

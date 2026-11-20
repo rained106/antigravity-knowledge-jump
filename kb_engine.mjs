@@ -53,22 +53,35 @@ const docxLinesCache = new Map(); // filePath -> { mtimeMs, size, lines }
 
 export const DEFAULT_SETTINGS = {
   knowledgeDir: existsSync('D:/knowledge_base') ? 'D:/knowledge_base' : join(homedir(), 'knowledge_base'),
+  importMode: 'replace',
 };
+
+function normalizeImportMode(mode, fallback = 'replace') {
+  return mode === 'append' || mode === 'replace' ? mode : fallback;
+}
 
 export function loadSettings() {
   if (!existsSync(SETTINGS_PATH)) return { ...DEFAULT_SETTINGS };
   try {
     const p = JSON.parse(readFileSync(SETTINGS_PATH, 'utf-8'));
-    return { knowledgeDir: p.knowledgeDir || DEFAULT_SETTINGS.knowledgeDir };
+    return {
+      knowledgeDir: p.knowledgeDir || DEFAULT_SETTINGS.knowledgeDir,
+      importMode: normalizeImportMode(p.importMode, DEFAULT_SETTINGS.importMode),
+    };
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
 }
 
 export function saveSettings(next) {
+  const cur = loadSettings();
   const merged = {
-    ...loadSettings(),
-    knowledgeDir: (next?.knowledgeDir || '').trim() || DEFAULT_SETTINGS.knowledgeDir,
+    ...cur,
+    knowledgeDir:
+      typeof next?.knowledgeDir === 'string' && next.knowledgeDir.trim()
+        ? next.knowledgeDir.trim()
+        : cur.knowledgeDir,
+    importMode: normalizeImportMode(next?.importMode, cur.importMode),
   };
   mkdirSync(PLUGIN_DIR, { recursive: true });
   writeFileSync(SETTINGS_PATH, JSON.stringify(merged, null, 2), 'utf-8');
@@ -649,7 +662,13 @@ export async function searchChunks(query, topK = 15, includeInactive = false) {
   return scored.slice(0, topK);
 }
 
-export function pushCards(segments, source = 'antigravity') {
+export function pushCards(segments, source = 'antigravity', options = {}) {
+  const settings = loadSettings();
+  const mode = normalizeImportMode(options?.mode, settings.importMode);
+  const groupTitle = typeof options?.title === 'string' ? options.title.trim() : '';
+  const now = Date.now();
+  const groupId = makeId(`${now}:${Math.random()}:${source}`);
+
   const idx = loadIndex();
   const chunkMap = new Map((idx?.chunks ?? []).map((c) => [c.id, c]));
   const normalized = (segments || []).map((seg) => {
@@ -663,6 +682,9 @@ export function pushCards(segments, source = 'antigravity') {
       segmentType: String(seg.segmentType ?? '题目片段'),
       matchedChunkId: cid,
       knowledgeTag: String(seg.knowledgeTag ?? ''),
+      groupId,
+      groupTitle,
+      pushedAt: now,
       matchedChunk: chunk
         ? {
             id: chunk.id,
@@ -674,15 +696,78 @@ export function pushCards(segments, source = 'antigravity') {
             pageNumber: chunk.pageNumber,
             status: chunk.status || 'active',
             reviewAfterStr: chunk.reviewAfterStr || '',
-            isOverdue: Boolean(chunk.reviewAfterMs && Date.now() > chunk.reviewAfterMs),
+            isOverdue: Boolean(chunk.reviewAfterMs && now > chunk.reviewAfterMs),
           }
         : null,
     };
   });
+
+  const existing = loadLatestCards();
+  const existingSegments =
+    mode === 'append' && Array.isArray(existing?.segments)
+      ? existing.segments.map((s) => (s.groupId ? s : { ...s, groupId: 'legacy' }))
+      : [];
+  const finalSegments = mode === 'append' ? [...existingSegments, ...normalized] : normalized;
+  const updatedAt = Math.max(now, Number(existing?.updatedAt || 0) + 1);
+
   mkdirSync(PLUGIN_DIR, { recursive: true });
-  const payload = { updatedAt: Date.now(), source, segments: normalized };
+  const payload = {
+    updatedAt,
+    source,
+    mode,
+    lastAddedGroupId: normalized.length > 0 ? groupId : '',
+    segments: finalSegments,
+  };
   writeFileSync(CARDS_PATH, JSON.stringify(payload, null, 2), 'utf-8');
-  return { pushed: normalized.length };
+  cardsCache = { mtimeMs: -1, size: -1, data: null };
+  return {
+    pushed: normalized.length,
+    total: finalSegments.length,
+    mode,
+    groupId,
+    updatedAt,
+    segments: finalSegments,
+  };
+}
+
+export function clearCards(source = 'user') {
+  const existing = loadLatestCards();
+  const updatedAt = Math.max(Date.now(), Number(existing?.updatedAt || 0) + 1);
+  const payload = {
+    updatedAt,
+    source,
+    mode: 'replace',
+    lastAddedGroupId: '',
+    segments: [],
+  };
+  mkdirSync(PLUGIN_DIR, { recursive: true });
+  writeFileSync(CARDS_PATH, JSON.stringify(payload, null, 2), 'utf-8');
+  cardsCache = { mtimeMs: -1, size: -1, data: null };
+  return { cleared: true, updatedAt, segments: [] };
+}
+
+export function removeCardGroup(groupId, source = 'user') {
+  const target = String(groupId || '').trim();
+  const existing = loadLatestCards();
+  const prev = Array.isArray(existing?.segments) ? existing.segments : [];
+  const remaining = prev.filter((s) => (s.groupId || 'legacy') !== target);
+  const updatedAt = Math.max(Date.now(), Number(existing?.updatedAt || 0) + 1);
+  const payload = {
+    updatedAt,
+    source,
+    mode: existing?.mode || loadSettings().importMode,
+    lastAddedGroupId: '',
+    segments: remaining,
+  };
+  mkdirSync(PLUGIN_DIR, { recursive: true });
+  writeFileSync(CARDS_PATH, JSON.stringify(payload, null, 2), 'utf-8');
+  cardsCache = { mtimeMs: -1, size: -1, data: null };
+  return {
+    removed: prev.length - remaining.length,
+    total: remaining.length,
+    updatedAt,
+    segments: remaining,
+  };
 }
 
 export function loadLatestCards() {

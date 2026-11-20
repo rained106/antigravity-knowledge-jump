@@ -4,6 +4,7 @@ import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Response, SidecarApp } from 'sidecar_sdk';
 import {
+  clearCards,
   getDocxLines,
   getIndexStatus,
   loadIndex,
@@ -11,6 +12,7 @@ import {
   loadSettings,
   pushCards,
   rebuildIndex,
+  removeCardGroup,
   saveSettings,
   searchChunks,
   shutdownEmbedder,
@@ -19,7 +21,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const KATEX_DIR = join(__dirname, 'katex');
 
-async function localAnalyzeText(rawText) {
+async function localAnalyzeText(rawText, mode) {
   const text = (rawText || '').trim();
   if (!text) throw new Error('请输入题干文字，或直接在 Antigravity 对话框粘贴题目截图。');
 
@@ -66,8 +68,7 @@ async function localAnalyzeText(rawText) {
     });
   }
 
-  pushCards(segments, 'local');
-  return segments;
+  return pushCards(segments, 'local', { mode });
 }
 
 const app = new SidecarApp();
@@ -85,10 +86,18 @@ function serveStaticCached(filePath, contentType, headers = IMMUTABLE_HEADERS) {
   };
 }
 
-// Pre-warm core UI assets into RAM once at startup (~300 KB total)
+// Pre-warm core UI assets into RAM (~300 KB total) with mtime-aware HTML reload
 const indexHtmlPath = join(__dirname, 'index.html');
-const indexHtmlBody = readFileSync(indexHtmlPath, 'utf-8');
-app.page('/', () => new Response(indexHtmlBody, { contentType: 'text/html; charset=utf-8', headers: { 'Cache-Control': 'no-cache' } }));
+let indexHtmlCache = { mtimeMs: -1, body: '' };
+function getIndexHtml() {
+  const st = statSync(indexHtmlPath);
+  if (indexHtmlCache.mtimeMs !== st.mtimeMs) {
+    indexHtmlCache = { mtimeMs: st.mtimeMs, body: readFileSync(indexHtmlPath, 'utf-8') };
+  }
+  return indexHtmlCache.body;
+}
+getIndexHtml();
+app.page('/', () => new Response(getIndexHtml(), { contentType: 'text/html; charset=utf-8', headers: { 'Cache-Control': 'no-cache' } }));
 
 const katexSwapCss = join(KATEX_DIR, 'katex-swap.min.css');
 const katexCssPath = existsSync(katexSwapCss) ? katexSwapCss : join(KATEX_DIR, 'katex.min.css');
@@ -136,9 +145,36 @@ app.api('/api/rebuild', async () => ({
   indexStatus: await rebuildIndex(),
 }));
 
-app.api('/api/analyze', async (data) => ({
-  segments: await localAnalyzeText(data?.text || ''),
-}));
+app.api('/api/analyze', async (data) => {
+  const res = await localAnalyzeText(data?.text || '', data?.mode);
+  return {
+    segments: res.segments,
+    addedCount: res.pushed,
+    totalCount: res.total,
+    mode: res.mode,
+    lastAddedGroupId: res.groupId,
+    updatedAt: res.updatedAt,
+  };
+});
+
+app.api('/api/cards/clear', async () => {
+  const res = clearCards('user');
+  return {
+    cleared: res.cleared,
+    updatedAt: res.updatedAt,
+    segments: res.segments,
+  };
+});
+
+app.api('/api/cards/remove-group', async (data) => {
+  const res = removeCardGroup(data?.groupId || '', 'user');
+  return {
+    removed: res.removed,
+    totalCount: res.total,
+    updatedAt: res.updatedAt,
+    segments: res.segments,
+  };
+});
 
 const mdLinesCache = new Map();
 function getMarkdownLines(filePath) {
