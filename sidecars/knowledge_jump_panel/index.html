@@ -279,6 +279,40 @@
       border-radius: 4px; background: var(--bg); color: var(--text); font-size: 12.5px;
     }
     .modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+    .modal.wide { width: min(560px, 94vw); max-height: 82vh; display: flex; flex-direction: column; }
+    .modal-sub { font-size: 11.5px; color: var(--muted); margin: -6px 0 10px; }
+    .chat-list {
+      overflow-y: auto; flex: 1; min-height: 120px; max-height: 54vh;
+      display: flex; flex-direction: column; gap: 8px; padding-right: 2px;
+    }
+    .chat-item {
+      border: 1px solid var(--border); border-radius: 7px;
+      padding: 8px 10px; background: var(--bg);
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .chat-item-top {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; font-size: 11px; color: var(--muted);
+    }
+    .chat-role {
+      font-weight: 600; padding: 1px 6px; border-radius: 4px;
+      background: var(--pill-bg); color: var(--pill-text);
+    }
+    .chat-role.ai { background: var(--pill-green-bg); color: var(--pill-green-text); }
+    .chat-preview { font-size: 12px; line-height: 1.5; word-break: break-word; color: var(--text); }
+    .chat-item-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .chat-item-actions button { padding: 2px 8px; font-size: 11.5px; }
+
+    .chat-import-bar {
+      padding: 8px 10px; border-radius: 8px;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      background: var(--quote-bg); margin-bottom: 10px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; flex-wrap: wrap;
+    }
+    .chat-import-bar .desc { font-size: 12px; color: var(--text); flex: 1; min-width: 160px; }
+    .chat-import-bar .desc small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .chat-import-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -297,9 +331,17 @@
 
     <div class="split">
       <div class="pane left">
-        <div class="banner info">
-          <span><b>截图识题</b>：直接在左侧 Antigravity 对话框粘贴题目截图，反重力会免 API 识别公式并自动推送到此面板。</span>
+        <div class="chat-import-bar">
+          <div class="desc">
+            <b>从当前对话导入题目</b>
+            <small>自动识别对话中的题目截图或文字（按下方导入方式追加或清空旧题）</small>
+          </div>
+          <div class="chat-import-actions">
+            <button id="importChatBtn" class="primary">导入对话中的题目</button>
+            <button id="pickChatBtn">选择消息</button>
+          </div>
         </div>
+        <div id="importStatus"></div>
         <div id="banners"></div>
         <div class="input-box">
           <div class="paste-hint">文字题干可在此直接离线拆解并匹配知识库（0 API、毫秒级响应）：</div>
@@ -349,6 +391,18 @@
     </div>
   </div>
 
+  <div id="chatPickerModal" class="modal-backdrop">
+    <div class="modal wide">
+      <h3>从当前对话选择题目</h3>
+      <div id="chatPickerSub" class="modal-sub">正在读取当前对话消息...</div>
+      <div id="chatPickerList" class="chat-list"></div>
+      <div class="modal-foot">
+        <button id="refreshChatBtn">刷新消息</button>
+        <button id="closeChatPickerBtn" class="primary">关闭</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/preload.js"></script>
   <script defer src="/katex/katex.min.js"></script>
   <script defer src="/katex/contrib/auto-render.min.js"></script>
@@ -363,6 +417,8 @@
     let mathQueue = [];
     let mathRaf = 0;
     let isPollingCards = false;
+    let awaitingChatImport = false;
+    let importStatusTimer = null;
     const deferredMathContainers = new Set();
 
     const KATEX_OPTIONS = {
@@ -377,6 +433,14 @@
 
     const indexPill = document.getElementById('indexPill');
     const bannersEl = document.getElementById('banners');
+    const importStatusEl = document.getElementById('importStatus');
+    const importChatBtn = document.getElementById('importChatBtn');
+    const pickChatBtn = document.getElementById('pickChatBtn');
+    const chatPickerModal = document.getElementById('chatPickerModal');
+    const chatPickerSub = document.getElementById('chatPickerSub');
+    const chatPickerList = document.getElementById('chatPickerList');
+    const refreshChatBtn = document.getElementById('refreshChatBtn');
+    const closeChatPickerBtn = document.getElementById('closeChatPickerBtn');
     const actionErrorEl = document.getElementById('actionError');
     const questionText = document.getElementById('questionText');
     const analyzeBtn = document.getElementById('analyzeBtn');
@@ -501,11 +565,180 @@
       actionErrorEl.innerHTML = msg ? '<div class="banner error">' + escapeHtml(msg) + '</div>' : '';
     }
 
+    function showImportStatus(msg, kind = 'info', autoHideMs = 0) {
+      if (importStatusTimer) {
+        clearTimeout(importStatusTimer);
+        importStatusTimer = null;
+      }
+      if (!msg) {
+        importStatusEl.innerHTML = '';
+        return;
+      }
+      const cls = kind === 'error' ? 'banner error' : 'banner info';
+      importStatusEl.innerHTML = '<div class="' + cls + '"><span>' + escapeHtml(msg) + '</span></div>';
+      if (autoHideMs > 0) {
+        importStatusTimer = setTimeout(() => {
+          importStatusEl.innerHTML = '';
+          importStatusTimer = null;
+        }, autoHideMs);
+      }
+    }
+
+    function getCurrentConversationId() {
+      return (
+        (window.sidecar && window.sidecar.conversationId) ||
+        new URLSearchParams(location.search).get('conversationId') ||
+        ''
+      );
+    }
+
+    function buildImportInstruction(targetItem = null) {
+      const modeDesc = importMode === 'append' ? '接在旧题后面（mode="append"）' : '清空旧题并覆盖（mode="replace"）';
+      if (targetItem) {
+        const ref = targetItem.stepIndex
+          ? ('第 ' + targetItem.stepIndex + ' 步（' + targetItem.roleLabel + '发送' + (targetItem.mediaCount > 0 ? '，含 ' + targetItem.mediaCount + ' 张图片' : '') + '）')
+          : '选中消息';
+        const snippet = targetItem.preview ? ('，内容摘要：「' + targetItem.preview.slice(0, 80) + '」') : '';
+        return (
+          '[KnowledgeJump 导入指令] 请提取当前对话中 ' + ref + snippet +
+          ' 所涉及的题目（若含图片请多模态识别公式与题干，公式用 LaTeX `$ ... $` / `$$ ... $$` 表示），' +
+          '按逻辑拆分为语义片段后调用 kj_search 匹配本地知识库，最后调用 kj_push_cards(mode="' + importMode + '") ' +
+          '以「' + modeDesc + '」的方式推送到 KnowledgeJump 面板。'
+        );
+      }
+      return (
+        '[KnowledgeJump 导入指令] 请识别并提取当前对话中最新出现的题目（含用户粘贴的题目截图或题干文字，公式用 LaTeX `$ ... $` / `$$ ... $$` 表示），' +
+        '按逻辑拆分为语义片段（已知条件、各小问、核心考点）后调用 kj_search 匹配本地知识库，' +
+        '最后调用 kj_push_cards(mode="' + importMode + '") 以「' + modeDesc + '」的方式推送到 KnowledgeJump 面板。'
+      );
+    }
+
+    async function triggerChatImport(targetItem = null) {
+      showActionError('');
+      if (!window.sidecar || !window.sidecar.agent || typeof window.sidecar.agent.sendMessage !== 'function') {
+        showImportStatus('当前页面未连接 Antigravity 宿主，请点「选择消息」直接离线导入文本。', 'error');
+        return;
+      }
+
+      let convId = getCurrentConversationId();
+      if (!convId) {
+        try {
+          const meta = await apiCall('/api/conversation-messages', null, 'GET');
+          convId = meta?.conversationId || '';
+        } catch {}
+      }
+      if (!convId) {
+        showImportStatus('未检测到当前对话 ID，请在 Antigravity 会话右侧打开本面板。', 'error');
+        return;
+      }
+
+      importChatBtn.disabled = true;
+      const prevText = importChatBtn.textContent;
+      importChatBtn.textContent = '发送指令中...';
+      try {
+        await window.sidecar.agent.sendMessage(buildImportInstruction(targetItem), convId);
+        awaitingChatImport = true;
+        const modeLabel = importMode === 'append' ? '接在旧题后' : '清空旧题';
+        showImportStatus('⏳ 已向当前对话发送导入指令（' + modeLabel + '），正在等待 Antigravity 识题并推送卡片…', 'info');
+        chatPickerModal.classList.remove('open');
+      } catch (e) {
+        showImportStatus('发送导入指令失败：' + e.message, 'error');
+      } finally {
+        importChatBtn.disabled = false;
+        importChatBtn.textContent = prevText;
+      }
+    }
+
+    async function loadConversationMessages() {
+      chatPickerSub.textContent = '正在读取当前对话消息...';
+      chatPickerList.innerHTML = '<div class="empty">加载中...</div>';
+      try {
+        const cid = getCurrentConversationId();
+        const url = cid ? ('/api/conversation-messages?conversationId=' + encodeURIComponent(cid)) : '/api/conversation-messages';
+        const data = await apiCall(url, null, 'GET');
+        const label = data.title ? (data.title + ' (' + (data.conversationId || '').slice(0, 8) + ')') : ((data.conversationId || '未识别对话').slice(0, 8));
+        chatPickerSub.textContent = '当前对话：' + label + '（共 ' + (data.messages?.length || 0) + ' 条近期消息）';
+
+        if (!data.messages || !data.messages.length) {
+          chatPickerList.innerHTML = '<div class="empty">当前对话暂无可读取的历史消息，可直接点击「导入对话中的题目」或粘贴文字。</div>';
+          return;
+        }
+
+        chatPickerList.innerHTML = '';
+        for (const item of data.messages) {
+          const row = document.createElement('div');
+          row.className = 'chat-item';
+
+          const top = document.createElement('div');
+          top.className = 'chat-item-top';
+          const roleClass = item.role === 'assistant' ? 'chat-role ai' : 'chat-role';
+          const mediaBadge = item.mediaCount > 0 ? (' · 📷 含 ' + item.mediaCount + ' 张图片') : '';
+          const timeStr = item.createdAt ? new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+          top.innerHTML =
+            '<span><span class="' + roleClass + '">' + escapeHtml(item.roleLabel) + '</span>' + escapeHtml(mediaBadge) + '</span>' +
+            '<span>' + escapeHtml(timeStr) + '</span>';
+
+          const prev = document.createElement('div');
+          prev.className = 'chat-preview';
+          prev.textContent = item.preview;
+
+          const acts = document.createElement('div');
+          acts.className = 'chat-item-actions';
+
+          const aiBtn = document.createElement('button');
+          aiBtn.className = 'primary';
+          aiBtn.textContent = item.mediaCount > 0 ? 'AI 识图并导入' : 'AI 识题导入';
+          aiBtn.onclick = () => triggerChatImport(item);
+          acts.appendChild(aiBtn);
+
+          if (item.fullText) {
+            const directBtn = document.createElement('button');
+            directBtn.textContent = importMode === 'append' ? '直接追加导入' : '直接覆盖导入';
+            directBtn.onclick = async () => {
+              directBtn.disabled = true;
+              try {
+                const res = await apiCall('/api/analyze', { text: item.fullText, mode: importMode });
+                lastCardsUpdatedAt = res.updatedAt || Date.now();
+                renderSegments(res.segments, {
+                  scrollToGroupId: res.mode === 'append' ? res.lastAddedGroupId : '',
+                });
+                chatPickerModal.classList.remove('open');
+                showImportStatus('✅ 已离线导入选中消息中的题目！', 'info', 3500);
+              } catch (e) {
+                showActionError(e.message);
+              } finally {
+                directBtn.disabled = false;
+              }
+            };
+            acts.appendChild(directBtn);
+
+            const fillBtn = document.createElement('button');
+            fillBtn.textContent = '填入输入框';
+            fillBtn.onclick = () => {
+              questionText.value = item.fullText;
+              chatPickerModal.classList.remove('open');
+              questionText.focus();
+            };
+            acts.appendChild(fillBtn);
+          }
+
+          row.appendChild(top);
+          row.appendChild(prev);
+          row.appendChild(acts);
+          chatPickerList.appendChild(row);
+        }
+      } catch (e) {
+        chatPickerSub.textContent = '读取失败';
+        chatPickerList.innerHTML = '<div class="banner error">' + escapeHtml(e.message) + '</div>';
+      }
+    }
+
     function updateImportModeUI(mode) {
       importMode = mode === 'append' ? 'append' : 'replace';
       modeReplaceBtn.classList.toggle('active', importMode === 'replace');
       modeAppendBtn.classList.toggle('active', importMode === 'append');
       analyzeBtn.textContent = importMode === 'append' ? '本地拆解（接在旧题后）' : '本地拆解（清空旧题）';
+      importChatBtn.textContent = importMode === 'append' ? '导入对话题目（追加）' : '导入对话题目（覆盖）';
     }
 
     async function setImportMode(mode) {
@@ -571,6 +804,14 @@
         rebuildBtn.textContent = '重建索引';
       }
     }
+
+    importChatBtn.onclick = () => triggerChatImport(null);
+    pickChatBtn.onclick = () => {
+      chatPickerModal.classList.add('open');
+      loadConversationMessages();
+    };
+    refreshChatBtn.onclick = loadConversationMessages;
+    closeChatPickerBtn.onclick = () => chatPickerModal.classList.remove('open');
 
     modeReplaceBtn.onclick = () => setImportMode('replace');
     modeAppendBtn.onclick = () => setImportMode('append');
@@ -949,6 +1190,10 @@
           renderSegments(data.segments, {
             scrollToGroupId: data.mode === 'append' ? data.lastAddedGroupId : '',
           });
+          if (awaitingChatImport) {
+            awaitingChatImport = false;
+            showImportStatus('✅ 已成功导入对话中的题目！', 'info', 4000);
+          }
         }
       } catch {
         // Ignore transient poll errors

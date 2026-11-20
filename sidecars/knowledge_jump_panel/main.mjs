@@ -1,5 +1,6 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import net from 'node:net';
+import { homedir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Response, SidecarApp } from 'sidecar_sdk';
@@ -175,6 +176,131 @@ app.api('/api/cards/remove-group', async (data) => {
     segments: res.segments,
   };
 });
+
+const CONV_ID_RE = /^[a-zA-Z0-9_-]{6,80}$/;
+
+function extractCleanMessageText(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  const m = raw.match(/<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/i);
+  const base = m ? m[1] : raw;
+  return base
+    .replace(/<SYSTEM_MESSAGE>[\s\S]*?<\/SYSTEM_MESSAGE>/gi, '')
+    .replace(/<CONTEXT_SUMMARY>[\s\S]*?<\/CONTEXT_SUMMARY>/gi, '')
+    .replace(/<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/gi, '')
+    .replace(/<USER_SETTINGS_CHANGE>[\s\S]*?<\/USER_SETTINGS_CHANGE>/gi, '')
+    .replace(/<\/?USER_REQUEST>/gi, '')
+    .trim();
+}
+
+async function queryConversationMeta(explicitId) {
+  const dbPath = join(homedir(), '.gemini', 'antigravity', 'conversation_summaries.db');
+  if (!existsSync(dbPath)) return { id: explicitId || '', title: '' };
+  try {
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(dbPath, { readOnly: true, timeout: 1000 });
+    try {
+      if (explicitId) {
+        const row = db
+          .prepare('SELECT conversation_id, title FROM conversation_summaries WHERE conversation_id = ?')
+          .get(explicitId);
+        return { id: explicitId, title: String(row?.title || '').trim() };
+      }
+      const row = db
+        .prepare(
+          "SELECT conversation_id, title FROM conversation_summaries WHERE app_data_dir = 'antigravity' AND parent_conversation_id = '' ORDER BY last_modified_time DESC LIMIT 1"
+        )
+        .get();
+      return {
+        id: String(row?.conversation_id || '').trim(),
+        title: String(row?.title || '').trim(),
+      };
+    } finally {
+      db.close();
+    }
+  } catch {
+    return { id: explicitId || '', title: '' };
+  }
+}
+
+function readConversationMessages(conversationId, limit = 16) {
+  if (!conversationId || !CONV_ID_RE.test(conversationId)) return [];
+  const transcriptPath = join(
+    homedir(),
+    '.gemini',
+    'antigravity',
+    'brain',
+    conversationId,
+    '.system_generated',
+    'logs',
+    'transcript.jsonl'
+  );
+  if (!existsSync(transcriptPath)) return [];
+
+  let fd;
+  try {
+    const st = statSync(transcriptPath);
+    const readLen = Math.min(st.size, 512 * 1024);
+    const offset = Math.max(0, st.size - readLen);
+    const buf = Buffer.allocUnsafe(readLen);
+    fd = openSync(transcriptPath, 'r');
+    const bytesRead = readSync(fd, buf, 0, readLen, offset);
+    const text = buf.subarray(0, bytesRead).toString('utf-8');
+    const lines = text.split(/\r?\n/);
+    if (offset > 0 && lines.length > 0) lines.shift(); // Drop potentially truncated first line
+
+    const items = [];
+    for (let i = lines.length - 1; i >= 0 && items.length < limit; i--) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      let obj;
+      try {
+        obj = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const isUser = obj.type === 'USER_INPUT' && obj.source === 'USER_EXPLICIT';
+      const isAssistant = obj.type === 'PLANNER_RESPONSE' && typeof obj.content === 'string' && obj.content.trim();
+      if (!isUser && !isAssistant) continue;
+
+      const cleaned = extractCleanMessageText(obj.content || '');
+      const mediaCount = Array.isArray(obj.media) ? obj.media.length : 0;
+      if (!cleaned && mediaCount === 0) continue;
+      // Skip auto-generated import trigger messages so the picker stays clean
+      if (isUser && cleaned.startsWith('[KnowledgeJump 导入指令]')) continue;
+
+      const compact = cleaned.replace(/\s+/g, ' ').trim();
+      const preview = compact.length > 140 ? `${compact.slice(0, 140)}…` : compact;
+      items.push({
+        stepIndex: Number(obj.step_index ?? 0),
+        role: isUser ? 'user' : 'assistant',
+        roleLabel: isUser ? '我' : 'Antigravity',
+        preview: preview || (mediaCount > 0 ? '（仅包含图片/截图）' : ''),
+        fullText: cleaned,
+        mediaCount,
+        createdAt: String(obj.created_at || ''),
+      });
+    }
+    return items;
+  } catch {
+    return [];
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch {}
+    }
+  }
+}
+
+app.api('/api/conversation-messages', async (data) => {
+  const rawCid = String(data?.conversationId || app.config.conversationId || '').trim();
+  const validCid = CONV_ID_RE.test(rawCid) ? rawCid : '';
+  const meta = await queryConversationMeta(validCid);
+  const messages = readConversationMessages(meta.id, 16);
+  return {
+    conversationId: meta.id,
+    title: meta.title,
+    messages,
+  };
+}, 'GET');
 
 const mdLinesCache = new Map();
 function getMarkdownLines(filePath) {
