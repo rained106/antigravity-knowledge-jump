@@ -1,6 +1,6 @@
 # Antigravity KnowledgeJump（双栏搜题与知识点对照插件）
 
-无需外部 API Key，直接利用 Antigravity 原生多模态识题能力 + 本地混合检索（BM25 / 可选 BGE 向量）+ Sidecar 双栏面板，实现「拍照/文字拆题 → 匹配知识点卡片 → 点击跳转并高亮定位 3.5 秒」。
+直接利用 Antigravity 原生多模态识题能力 + 本地混合检索（BM25 / 可选 BGE 向量）+ Sidecar 双栏面板，实现「拍照/文字拆题 → 匹配知识点卡片 → 点击跳转并高亮定位 3.5 秒」。
 
 - GitHub 仓库：https://github.com/rained106/antigravity-knowledge-jump
 

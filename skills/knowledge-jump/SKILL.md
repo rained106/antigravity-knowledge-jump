@@ -1,11 +1,11 @@
 ---
 name: knowledge-jump
-description: 双栏对照搜题与知识点跳转工具（免外部 API）。当用户粘贴题目截图、输入题目或请求打开搜题对照面板时使用。
+description: 双栏对照搜题与知识点跳转工具。当用户粘贴题目截图、输入题目或请求打开搜题对照面板时使用。
 ---
 
-# KnowledgeJump（Antigravity 原生免 API 版）
+# KnowledgeJump（Antigravity 原生版）
 
-本插件完全依靠 **Antigravity 内置多模态能力 + 本地知识库索引 + Sidecar 双栏面板** 工作，无需任何外部 API Key。
+本插件完全依靠 **Antigravity 内置多模态能力 + 本地知识库索引 + Sidecar 双栏面板** 工作，开箱即用。
 
 ## 标准工作流（截图/文字识题并推送至双栏面板）
 
