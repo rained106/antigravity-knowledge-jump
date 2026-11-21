@@ -118,15 +118,23 @@
     .topbar {
       display: flex; align-items: center; justify-content: space-between;
       padding: 8px 12px; border-bottom: 1px solid var(--kj-border);
-      background: var(--kj-surface); color: var(--kj-text); gap: 8px; flex-wrap: wrap;
+      background: var(--kj-surface); color: var(--kj-text); gap: 8px; flex-wrap: nowrap; overflow: hidden;
     }
-    .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; color: var(--kj-text); }
+    .brand {
+      display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px;
+      color: var(--kj-text); min-width: 0; overflow: hidden; white-space: nowrap;
+    }
     .pill {
       font-size: 11px; padding: 2px 8px; border-radius: 999px;
       background: var(--kj-pill-bg); color: var(--kj-pill-text); font-weight: 500;
+      flex-shrink: 0; white-space: nowrap;
     }
+    #indexPill { overflow: hidden; text-overflow: ellipsis; max-width: 45vw; }
     .pill.green { background: var(--kj-pill-green-bg); color: var(--kj-pill-green-text); }
-    .btn-group { display: flex; gap: 6px; }
+    .btn-group { display: flex; gap: 6px; flex-shrink: 0; white-space: nowrap; }
+    @media (max-width: 520px) {
+      .brand .pill.green { display: none; }
+    }
     button {
       cursor: pointer; border: 1px solid var(--kj-border);
       background: transparent; color: var(--kj-text);
@@ -180,17 +188,108 @@
     }
     .problem-group-remove:hover { color: var(--kj-error-text); background: var(--kj-error-bg); }
 
-    .split { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
-    @media (max-width: 760px) {
-      .split { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+    .split {
+      flex: 1; display: flex; flex-direction: row; min-height: 0; min-width: 0;
+      --kj-split-pct: 50%;
+      --kj-split-v-pct: 46%;
     }
+    .split.stacked { flex-direction: column; }
     .pane {
-      display: flex; flex-direction: column; min-height: 0; overflow-y: auto; padding: 12px;
-      contain: layout style; will-change: scroll-position;
+      display: flex; flex-direction: column; min-height: 0; min-width: 0;
+      overflow-y: auto; padding: 12px; contain: layout style;
     }
-    .pane.left { border-right: 1px solid var(--kj-border); }
-    @media (max-width: 760px) {
-      .pane.left { border-right: none; border-bottom: 1px solid var(--kj-border); }
+    .pane.left {
+      flex: 0 0 calc(var(--kj-split-pct) - 5px);
+      min-width: 80px;
+    }
+    .pane.right {
+      flex: 1 1 0%;
+      min-width: 80px;
+    }
+    .split.stacked .pane.left {
+      flex: 0 0 calc(var(--kj-split-v-pct) - 5px);
+      min-width: 0;
+      min-height: 72px;
+    }
+    .split.stacked .pane.right {
+      flex: 1 1 0%;
+      min-width: 0;
+      min-height: 72px;
+    }
+    .split-resizer {
+      flex: 0 0 10px;
+      position: relative;
+      cursor: col-resize;
+      touch-action: none;
+      user-select: none;
+      background: transparent;
+      transition: background-color 0.15s ease;
+    }
+    .split-resizer::before {
+      content: "";
+      position: absolute;
+      top: 0; bottom: 0; left: 50%;
+      width: 1px;
+      transform: translateX(-50%);
+      background: var(--kj-border);
+      transition: background-color 0.15s ease, width 0.15s ease;
+    }
+    .split-resizer::after {
+      content: "";
+      position: absolute;
+      top: 50%; left: 50%;
+      width: 4px; height: 40px;
+      transform: translate(-50%, -50%);
+      border-radius: 999px;
+      background: var(--kj-muted);
+      opacity: 0.55;
+      transition: background-color 0.15s ease, opacity 0.15s ease;
+    }
+    .split-resizer:hover,
+    .split-resizer.dragging {
+      background: var(--kj-hover-bg);
+    }
+    .split-resizer:focus-visible {
+      outline: 2px solid var(--kj-accent);
+      outline-offset: -2px;
+    }
+    .split-resizer:hover::before,
+    .split-resizer.dragging::before {
+      width: 2px;
+      background: var(--kj-accent);
+    }
+    .split-resizer:hover::after,
+    .split-resizer.dragging::after {
+      background: var(--kj-accent);
+      opacity: 1;
+    }
+    .split.stacked .split-resizer {
+      cursor: row-resize;
+    }
+    .split.stacked .split-resizer::before {
+      left: 0; right: 0; top: 50%; bottom: auto;
+      width: auto; height: 1px;
+      transform: translateY(-50%);
+    }
+    .split.stacked .split-resizer:hover::before,
+    .split.stacked .split-resizer.dragging::before {
+      width: auto; height: 2px;
+    }
+    .split.stacked .split-resizer::after {
+      width: 40px; height: 4px;
+    }
+    body.is-resizing, body.is-resizing * {
+      transition: none !important;
+    }
+    body.is-split-dragging {
+      user-select: none !important;
+      cursor: col-resize !important;
+    }
+    body.is-split-dragging.stacked-dragging {
+      cursor: row-resize !important;
+    }
+    body.is-split-dragging .pane {
+      pointer-events: none;
     }
 
     .banner {
@@ -253,7 +352,6 @@
       padding: 3px 8px; border-radius: 4px; word-break: break-word;
       font-size: 13px; line-height: 1.7; transition: background-color 0.25s ease;
       color: var(--kj-text);
-      contain: layout style; content-visibility: auto; contain-intrinsic-size: auto 28px;
     }
     .doc-line h1, .doc-line h2, .doc-line h3, .doc-line h4 {
       margin: 8px 0 4px; color: var(--kj-heading); line-height: 1.35;
@@ -289,9 +387,6 @@
       font-size: 12px;
       background: var(--kj-surface);
       color: var(--kj-text);
-      contain: layout style;
-      content-visibility: auto;
-      contain-intrinsic-size: auto 120px;
     }
     .md-table th, .md-table td {
       border: 1px solid var(--kj-border);
@@ -307,9 +402,17 @@
       padding: 10px 12px; border: 1px solid var(--kj-border); border-radius: 6px;
       margin-bottom: 10px; background: var(--kj-surface); color: var(--kj-text);
       transition: background-color 0.25s ease;
-      contain: layout style; content-visibility: auto; contain-intrinsic-size: auto 220px;
     }
     .pdf-page.hl-amber { background-color: var(--kj-hl-bg); border-color: var(--kj-hl-border); }
+    .doc-window-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; flex-wrap: wrap;
+      margin: 6px 0 10px; padding: 6px 10px;
+      border: 1px dashed var(--kj-border); border-radius: 6px;
+      background: var(--kj-surface); color: var(--kj-muted); font-size: 11.5px;
+    }
+    .doc-window-bar .win-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .doc-window-bar button { padding: 2px 8px; font-size: 11.5px; }
     .empty { color: var(--kj-muted); text-align: center; padding: 26px 12px; font-size: 12px; }
 
     .modal-backdrop {
@@ -373,13 +476,14 @@
         <span id="indexPill" class="pill">加载中...</span>
       </div>
       <div class="btn-group">
+        <button id="layoutToggleBtn" title="切换左右分栏 / 上下分栏">左右/上下</button>
         <button id="rebuildBtn">重建索引</button>
         <button id="settingsBtn">设置目录</button>
       </div>
     </div>
 
-    <div class="split">
-      <div class="pane left">
+    <div id="splitContainer" class="split">
+      <div id="leftPane" class="pane left">
         <div class="chat-import-bar">
           <div class="desc">
             <b>从当前对话导入题目</b>
@@ -416,6 +520,8 @@
           <div class="empty">等待输入文字题干，或在 Antigravity 对话框发送题目截图...</div>
         </div>
       </div>
+
+      <div id="splitResizer" class="split-resizer" tabindex="0" role="separator" aria-orientation="vertical" aria-label="调整题目与知识点分栏比例" title="拖拽调整题目与知识点栏比例，双击重置为默认比例"></div>
 
       <div id="docPane" class="pane right">
         <div class="doc-header" id="docHeader">知识点对照阅读区</div>
@@ -455,9 +561,12 @@
   <script defer src="/katex/katex.min.js"></script>
   <script defer src="/katex/contrib/auto-render.min.js"></script>
   <script>
+    let lastHostBgValue = null;
     function syncHostTheme() {
       const root = document.documentElement;
       const rawBg = getComputedStyle(root).getPropertyValue('--background').trim();
+      if (rawBg === lastHostBgValue && root.dataset.theme) return;
+      lastHostBgValue = rawBg;
       let theme = '';
       if (rawBg) {
         const probe = document.createElement('span');
@@ -495,15 +604,33 @@
       if (typeof mq.addEventListener === 'function') mq.addEventListener('change', syncHostTheme);
     }
 
+    const DOC_WINDOW_THRESHOLD = 200;
+    const DOC_WIN_BEFORE = 60;
+    const DOC_WIN_AFTER = 100;
+    const DOC_WIN_STEP = 120;
+    const PDF_WINDOW_THRESHOLD = 15;
+    const PDF_WIN_BEFORE = 4;
+    const PDF_WIN_AFTER = 6;
+    const PDF_WIN_STEP = 8;
+
     let lastCardsUpdatedAt = 0;
     let importMode = 'replace';
     let hlTimer = null;
     let loadedDocKey = null;
+    let loadedDoc = null;
+    let docWindow = { start: 0, end: -1, startPage: 0, endPage: -1 };
     let docBlocks = [];
     let pdfPageMap = new Map();
     let mathObserver = null;
     let mathQueue = [];
     let mathRaf = 0;
+    let mathIdleHandle = 0;
+    let splitRatioH = 0.5;
+    let splitRatioV = 0.46;
+    let layoutPreference = 'auto';
+    let isStacked = false;
+    let isResizing = false;
+    let resizeEndTimer = null;
     let isPollingCards = false;
     let awaitingChatImport = false;
     let importStatusTimer = null;
@@ -540,12 +667,211 @@
     const clearCardsBtn = document.getElementById('clearCardsBtn');
     const rebuildBtn = document.getElementById('rebuildBtn');
     const settingsBtn = document.getElementById('settingsBtn');
+    const layoutToggleBtn = document.getElementById('layoutToggleBtn');
     const resultsEl = document.getElementById('results');
+    const splitContainer = document.getElementById('splitContainer');
+    const leftPane = document.getElementById('leftPane');
+    const splitResizer = document.getElementById('splitResizer');
     const docPane = document.getElementById('docPane');
     const docHeader = document.getElementById('docHeader');
     const docContent = document.getElementById('docContent');
     const settingsModal = document.getElementById('settingsModal');
     const cfgKbDir = document.getElementById('cfgKbDir');
+
+    function clampRatio(val, fallback) {
+      const n = Number(val);
+      if (!Number.isFinite(n)) return fallback;
+      return Math.min(0.92, Math.max(0.08, Math.round(n * 1000) / 1000));
+    }
+
+    function readSplitStorage() {
+      try {
+        const h = localStorage.getItem('kj_split_h');
+        const v = localStorage.getItem('kj_split_v');
+        const lp = localStorage.getItem('kj_layout_pref');
+        if (h !== null) splitRatioH = clampRatio(h, 0.5);
+        if (v !== null) splitRatioV = clampRatio(v, 0.46);
+        if (lp === 'auto' || lp === 'horizontal' || lp === 'vertical') layoutPreference = lp;
+      } catch {}
+    }
+
+    function writeSplitStorage() {
+      try {
+        localStorage.setItem('kj_split_h', String(splitRatioH));
+        localStorage.setItem('kj_split_v', String(splitRatioV));
+        localStorage.setItem('kj_layout_pref', layoutPreference);
+      } catch {}
+    }
+
+    function applySplitRatio() {
+      const hPct = (splitRatioH * 100).toFixed(3) + '%';
+      const vPct = (splitRatioV * 100).toFixed(3) + '%';
+      splitContainer.style.setProperty('--kj-split-pct', hPct);
+      splitContainer.style.setProperty('--kj-split-v-pct', vPct);
+      if (leftPane) {
+        leftPane.style.flexBasis = isStacked ? `calc(${vPct} - 5px)` : `calc(${hPct} - 5px)`;
+      }
+    }
+
+    function updateLayoutOrientation(initial = false) {
+      const w = splitContainer.clientWidth || window.innerWidth;
+      let next = isStacked;
+      if (layoutPreference === 'vertical') {
+        next = true;
+      } else if (layoutPreference === 'horizontal') {
+        next = false;
+      } else if (initial) {
+        next = w < 720;
+      } else if (!isStacked && w < 680) {
+        next = true;
+      } else if (isStacked && w > 760) {
+        next = false;
+      }
+      isStacked = next;
+      splitContainer.classList.toggle('stacked', isStacked);
+      splitResizer.setAttribute('aria-orientation', isStacked ? 'horizontal' : 'vertical');
+      if (layoutToggleBtn) {
+        layoutToggleBtn.textContent = isStacked ? '切换左右' : '切换上下';
+      }
+      applySplitRatio();
+    }
+
+    readSplitStorage();
+    updateLayoutOrientation(true);
+
+    if (layoutToggleBtn) {
+      layoutToggleBtn.addEventListener('click', () => {
+        layoutPreference = isStacked ? 'horizontal' : 'vertical';
+        writeSplitStorage();
+        updateLayoutOrientation(false);
+      });
+    }
+
+    let dragActive = false;
+    let dragPointerId = null;
+    let dragRaf = 0;
+    let dragClientX = 0;
+    let dragClientY = 0;
+
+    function updateSplitFromPointer() {
+      dragRaf = 0;
+      const rect = splitContainer.getBoundingClientRect();
+      if (isStacked) {
+        const total = rect.height;
+        if (total <= 0) return;
+        const minPx = Math.min(72, total * 0.15);
+        const pos = Math.min(total - minPx, Math.max(minPx, dragClientY - rect.top));
+        splitRatioV = clampRatio(pos / total, 0.46);
+      } else {
+        const total = rect.width;
+        if (total <= 0) return;
+        const minPx = Math.min(80, total * 0.15);
+        const pos = Math.min(total - minPx, Math.max(minPx, dragClientX - rect.left));
+        splitRatioH = clampRatio(pos / total, 0.5);
+      }
+      applySplitRatio();
+    }
+
+    function finishSplitDrag() {
+      if (!dragActive) return;
+      dragActive = false;
+      const pid = dragPointerId;
+      dragPointerId = null;
+      if (dragRaf) {
+        cancelAnimationFrame(dragRaf);
+        dragRaf = 0;
+      }
+      try {
+        if (pid !== null && splitResizer.hasPointerCapture(pid)) splitResizer.releasePointerCapture(pid);
+      } catch {}
+      splitResizer.classList.remove('dragging');
+      document.body.classList.remove('is-resizing', 'is-split-dragging', 'stacked-dragging');
+      isResizing = false;
+      scheduleMathFlush();
+      writeSplitStorage();
+      apiCall('/api/settings', { splitRatio: splitRatioH, splitRatioV: splitRatioV }).catch(() => {});
+    }
+
+    splitResizer.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      dragActive = true;
+      dragPointerId = e.pointerId;
+      dragClientX = e.clientX;
+      dragClientY = e.clientY;
+      try { splitResizer.setPointerCapture(e.pointerId); } catch {}
+      isResizing = true;
+      cancelScheduledMath();
+      splitResizer.classList.add('dragging');
+      document.body.classList.add('is-resizing', 'is-split-dragging');
+      if (isStacked) document.body.classList.add('stacked-dragging');
+      updateSplitFromPointer();
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (!dragActive) return;
+      if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
+      dragClientX = e.clientX;
+      dragClientY = e.clientY;
+      if (!dragRaf) dragRaf = requestAnimationFrame(updateSplitFromPointer);
+    });
+
+    window.addEventListener('pointerup', (e) => {
+      if (!dragActive) return;
+      if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
+      finishSplitDrag();
+    });
+
+    window.addEventListener('pointercancel', (e) => {
+      if (!dragActive) return;
+      if (dragPointerId !== null && e.pointerId !== dragPointerId) return;
+      finishSplitDrag();
+    });
+
+    window.addEventListener('blur', () => {
+      if (dragActive) finishSplitDrag();
+    });
+
+    splitResizer.addEventListener('dblclick', () => {
+      if (isStacked) splitRatioV = 0.46;
+      else splitRatioH = 0.5;
+      applySplitRatio();
+      writeSplitStorage();
+      apiCall('/api/settings', { splitRatio: splitRatioH, splitRatioV: splitRatioV }).catch(() => {});
+    });
+
+    splitResizer.addEventListener('keydown', (e) => {
+      let handled = true;
+      if (!isStacked && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        splitRatioH = clampRatio(splitRatioH + (e.key === 'ArrowLeft' ? -0.05 : 0.05), 0.5);
+      } else if (isStacked && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        splitRatioV = clampRatio(splitRatioV + (e.key === 'ArrowUp' ? -0.05 : 0.05), 0.46);
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        if (isStacked) splitRatioV = 0.46;
+        else splitRatioH = 0.5;
+      } else {
+        handled = false;
+      }
+      if (!handled) return;
+      e.preventDefault();
+      applySplitRatio();
+      writeSplitStorage();
+      apiCall('/api/settings', { splitRatio: splitRatioH, splitRatioV: splitRatioV }).catch(() => {});
+    });
+
+    window.addEventListener('resize', () => {
+      isResizing = true;
+      document.body.classList.add('is-resizing');
+      cancelScheduledMath();
+      if (resizeEndTimer) clearTimeout(resizeEndTimer);
+      resizeEndTimer = setTimeout(() => {
+        resizeEndTimer = null;
+        isResizing = false;
+        document.body.classList.remove('is-resizing');
+        updateLayoutOrientation(false);
+        scheduleMathFlush();
+      }, 180);
+    });
 
     function hasMathSyntax(s) {
       return typeof s === 'string' && (s.includes('$') || s.includes('\\(') || s.includes('\\['));
@@ -563,30 +889,57 @@
       renderMathInElement(el, KATEX_OPTIONS);
     }
 
-    function flushMathQueue() {
+    function cancelScheduledMath() {
+      if (mathRaf) {
+        cancelAnimationFrame(mathRaf);
+        mathRaf = 0;
+      }
+      if (mathIdleHandle && typeof cancelIdleCallback === 'function') {
+        cancelIdleCallback(mathIdleHandle);
+        mathIdleHandle = 0;
+      }
+    }
+
+    function scheduleMathFlush() {
+      if (isResizing || mathQueue.length === 0 || mathRaf || mathIdleHandle) return;
+      if (typeof requestIdleCallback === 'function') {
+        mathIdleHandle = requestIdleCallback(flushMathQueue, { timeout: 120 });
+      } else {
+        mathRaf = requestAnimationFrame(flushMathQueue);
+      }
+    }
+
+    function flushMathQueue(deadline) {
       mathRaf = 0;
+      mathIdleHandle = 0;
+      if (isResizing) return;
       if (typeof renderMathInElement !== 'function') {
         for (const el of mathQueue) deferredMathContainers.add(el);
         mathQueue = [];
         return;
       }
       const start = performance.now();
-      while (mathQueue.length > 0 && performance.now() - start < 10) {
+      let processed = 0;
+      while (mathQueue.length > 0 && performance.now() - start < 4) {
+        if (deadline && typeof deadline.timeRemaining === 'function' && deadline.timeRemaining() <= 0.5 && processed > 0) {
+          break;
+        }
         const el = mathQueue.shift();
         if (el && el.isConnected && el.dataset.mathPending === '1') {
           delete el.dataset.mathPending;
           renderMathInElement(el, KATEX_OPTIONS);
+          processed += 1;
         }
       }
       if (mathQueue.length > 0) {
-        mathRaf = requestAnimationFrame(flushMathQueue);
+        scheduleMathFlush();
       }
     }
 
     function enqueueLazyMath(el) {
       if (!el || el.dataset.mathPending !== '1') return;
       mathQueue.push(el);
-      if (!mathRaf) mathRaf = requestAnimationFrame(flushMathQueue);
+      scheduleMathFlush();
     }
 
     function resetMathObserver() {
@@ -595,10 +948,7 @@
         mathObserver = null;
       }
       mathQueue = [];
-      if (mathRaf) {
-        cancelAnimationFrame(mathRaf);
-        mathRaf = 0;
-      }
+      cancelScheduledMath();
     }
 
     function flushDeferredMath() {
@@ -844,6 +1194,12 @@
       const st = state.indexStatus;
       cfgKbDir.value = state.settings.knowledgeDir || '';
       updateImportModeUI(state.settings.importMode || 'replace');
+      if (state.settings.splitRatio != null || state.settings.splitRatioV != null) {
+        if (state.settings.splitRatio != null) splitRatioH = clampRatio(state.settings.splitRatio, splitRatioH);
+        if (state.settings.splitRatioV != null) splitRatioV = clampRatio(state.settings.splitRatioV, splitRatioV);
+        applySplitRatio();
+        writeSplitStorage();
+      }
       indexPill.textContent = st.indexExists
         ? ('索引: ' + st.chunkCount + ' 切片 / ' + st.fileCount + ' 文件' + (st.embedding?.enabled ? ' · BGE+BM25' : ''))
         : '未建索引';
@@ -884,6 +1240,8 @@
       try {
         await apiCall('/api/rebuild', {});
         loadedDocKey = null;
+        loadedDoc = null;
+        docWindow = { start: 0, end: -1, startPage: 0, endPage: -1 };
         await loadState();
       } catch (e) {
         alert('重建索引失败: ' + e.message);
@@ -1086,17 +1444,343 @@
       }, 3500);
     }
 
+    function adjustMarkdownRange(lines, rawStart, rawEnd) {
+      const total = lines.length;
+      if (total === 0) return [0, -1];
+      let s = Math.max(0, Math.min(total - 1, rawStart));
+      let e = Math.max(s, Math.min(total - 1, rawEnd));
+
+      const isTableRow = (line) => /^\s*\|.*\|\s*$/.test(line);
+      while (s > 0 && isTableRow(lines[s]) && isTableRow(lines[s - 1])) s--;
+      while (e < total - 1 && isTableRow(lines[e]) && isTableRow(lines[e + 1])) e++;
+
+      let ddParity = 0;
+      for (let i = 0; i < s; i++) {
+        ddParity ^= ((lines[i].match(/\$\$/g) || []).length & 1);
+      }
+      if (ddParity === 1) {
+        while (s > 0) {
+          s--;
+          const cnt = (lines[s].match(/\$\$/g) || []).length;
+          if ((cnt & 1) === 1) break;
+        }
+      }
+
+      let endParity = 0;
+      for (let i = s; i <= e; i++) {
+        endParity ^= ((lines[i].match(/\$\$/g) || []).length & 1);
+      }
+      if (endParity === 1) {
+        while (e < total - 1) {
+          e++;
+          const cnt = (lines[e].match(/\$\$/g) || []).length;
+          if ((cnt & 1) === 1) break;
+        }
+      }
+      return [s, e];
+    }
+
+    function makeWindowBar(infoText, buttons) {
+      const bar = document.createElement('div');
+      bar.className = 'doc-window-bar';
+      const info = document.createElement('span');
+      info.textContent = infoText;
+      const acts = document.createElement('div');
+      acts.className = 'win-actions';
+      for (const spec of buttons) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.textContent = spec.label;
+        btn.onclick = spec.onClick;
+        acts.appendChild(btn);
+      }
+      bar.appendChild(info);
+      bar.appendChild(acts);
+      return bar;
+    }
+
+    function renderDocWindow(doc, rangeStart, rangeEnd, opts = {}) {
+      const prevScrollHeight = opts.preserveScroll ? docPane.scrollHeight : 0;
+      const prevScrollTop = opts.preserveScroll ? docPane.scrollTop : 0;
+
+      resetMathObserver();
+      docBlocks = [];
+      pdfPageMap = new Map();
+      const frag = document.createDocumentFragment();
+      const lazyMathEls = [];
+
+      if (doc.type === 'markdown') {
+        const total = doc.lines.length;
+        const [s, e] = total <= DOC_WINDOW_THRESHOLD
+          ? [0, total - 1]
+          : adjustMarkdownRange(doc.lines, rangeStart, rangeEnd);
+
+        if (s > 0) {
+          frag.appendChild(makeWindowBar(
+            `上方已折叠第 1–${s} 行（当前显示第 ${s + 1}–${e + 1} / 共 ${total} 行）`,
+            [
+              {
+                label: `向上展开 ${DOC_WIN_STEP} 行`,
+                onClick: () => renderDocWindow(doc, Math.max(0, s - DOC_WIN_STEP), e, { preserveScroll: true, expandDirection: 'up' }),
+              },
+              {
+                label: '展开全文',
+                onClick: () => renderDocWindow(doc, 0, total - 1, { preserveScroll: true, expandDirection: 'up' }),
+              },
+            ]
+          ));
+        }
+
+        let idx = s;
+        while (idx <= e) {
+          const line = doc.lines[idx];
+          if (/^\s*\|.*\|\s*$/.test(line)) {
+            const table = document.createElement('table');
+            table.className = 'md-table';
+            let isFirstRow = true;
+            let tbody = null;
+            while (idx <= e && /^\s*\|.*\|\s*$/.test(doc.lines[idx])) {
+              const rowLine = doc.lines[idx];
+              const rawCells = rowLine.trim().slice(1, -1).split('|').map((c) => c.trim());
+              const isSep = rawCells.every((c) => /^:?-{2,}:?$/.test(c));
+              if (!isSep) {
+                const tr = document.createElement('tr');
+                if (hasMathSyntax(rowLine)) {
+                  tr.dataset.mathPending = '1';
+                  lazyMathEls.push(tr);
+                }
+                if (isFirstRow) {
+                  const thead = document.createElement('thead');
+                  for (const cellText of rawCells) {
+                    const th = document.createElement('th');
+                    th.innerHTML = formatInlineMd(cellText);
+                    tr.appendChild(th);
+                  }
+                  thead.appendChild(tr);
+                  table.appendChild(thead);
+                  isFirstRow = false;
+                } else {
+                  if (!tbody) {
+                    tbody = document.createElement('tbody');
+                    table.appendChild(tbody);
+                  }
+                  for (const cellText of rawCells) {
+                    const td = document.createElement('td');
+                    td.innerHTML = formatInlineMd(cellText);
+                    tr.appendChild(td);
+                  }
+                  tbody.appendChild(tr);
+                }
+                docBlocks.push({ start: idx, end: idx, el: tr });
+              }
+              idx++;
+            }
+            frag.appendChild(table);
+            continue;
+          }
+
+          const div = document.createElement('div');
+          const trimmed = line.trim();
+          const ddCount = (trimmed.match(/\$\$/g) || []).length;
+          if (ddCount % 2 === 1) {
+            const blockStart = idx;
+            const blockLines = [line];
+            idx++;
+            while (idx <= e) {
+              const nextLine = doc.lines[idx];
+              blockLines.push(nextLine);
+              const nextDd = (nextLine.match(/\$\$/g) || []).length;
+              idx++;
+              if (nextDd % 2 === 1) break;
+            }
+            const joined = blockLines.join('\n');
+            div.className = 'doc-line';
+            div.innerHTML = formatInlineMd(joined);
+            div.dataset.mathPending = '1';
+            lazyMathEls.push(div);
+            docBlocks.push({ start: blockStart, end: idx - 1, el: div });
+            frag.appendChild(div);
+            continue;
+          }
+
+          const hMatch = trimmed.match(/^(#{1,4})\s+(.+)$/);
+          if (hMatch) {
+            const lvl = hMatch[1].length;
+            div.className = 'doc-line';
+            div.innerHTML = `<h${lvl}>${formatInlineMd(hMatch[2])}</h${lvl}>`;
+          } else if (/^>\s*/.test(trimmed)) {
+            div.className = 'doc-line';
+            div.innerHTML = `<blockquote>${formatInlineMd(trimmed.replace(/^>\s*/, ''))}</blockquote>`;
+          } else if (/^[-*]\s+/.test(trimmed)) {
+            div.className = 'doc-line list-item';
+            div.innerHTML = formatInlineMd(trimmed.replace(/^[-*]\s+/, ''));
+          } else if (/^---+$/.test(trimmed)) {
+            div.className = 'doc-line';
+            div.innerHTML = '<hr style="border:none;border-top:1px solid var(--kj-border);margin:6px 0;" />';
+          } else {
+            div.className = 'doc-line';
+            div.innerHTML = formatInlineMd(line);
+          }
+
+          if (hasMathSyntax(line)) {
+            div.dataset.mathPending = '1';
+            lazyMathEls.push(div);
+          }
+          docBlocks.push({ start: idx, end: idx, el: div });
+          frag.appendChild(div);
+          idx++;
+        }
+
+        if (e < total - 1) {
+          frag.appendChild(makeWindowBar(
+            `下方还有第 ${e + 2}–${total} 行未展开`,
+            [
+              {
+                label: `向下展开 ${DOC_WIN_STEP} 行`,
+                onClick: () => renderDocWindow(doc, s, Math.min(total - 1, e + DOC_WIN_STEP), { preserveScroll: true, expandDirection: 'down' }),
+              },
+              {
+                label: '展开全文',
+                onClick: () => renderDocWindow(doc, 0, total - 1, { preserveScroll: true, expandDirection: 'down' }),
+              },
+            ]
+          ));
+        }
+
+        docWindow = { start: s, end: e, startPage: 0, endPage: -1 };
+      } else {
+        const total = doc.pages.length;
+        const s = total <= PDF_WINDOW_THRESHOLD ? 0 : Math.max(0, rangeStart);
+        const e = total <= PDF_WINDOW_THRESHOLD ? total - 1 : Math.min(total - 1, rangeEnd);
+
+        if (s > 0) {
+          frag.appendChild(makeWindowBar(
+            `上方已折叠前 ${s} 页（当前显示第 ${doc.pages[s].pageNumber}–${doc.pages[e].pageNumber} 页 / 共 ${total} 页）`,
+            [
+              {
+                label: `向上展开 ${PDF_WIN_STEP} 页`,
+                onClick: () => renderDocWindow(doc, Math.max(0, s - PDF_WIN_STEP), e, { preserveScroll: true, expandDirection: 'up' }),
+              },
+              {
+                label: '展开全部页',
+                onClick: () => renderDocWindow(doc, 0, total - 1, { preserveScroll: true, expandDirection: 'up' }),
+              },
+            ]
+          ));
+        }
+
+        for (let i = s; i <= e; i++) {
+          const p = doc.pages[i];
+          const box = document.createElement('div');
+          box.className = 'pdf-page';
+          box.innerHTML = '<div style="font-weight:600;margin-bottom:4px;">第 ' + p.pageNumber + ' 页</div><div>' + escapeHtml(p.text) + '</div>';
+          if (hasMathSyntax(p.text)) {
+            box.dataset.mathPending = '1';
+            lazyMathEls.push(box);
+          }
+          pdfPageMap.set(p.pageNumber, box);
+          frag.appendChild(box);
+        }
+
+        if (e < total - 1) {
+          frag.appendChild(makeWindowBar(
+            `下方还有 ${total - 1 - e} 页未展开`,
+            [
+              {
+                label: `向下展开 ${PDF_WIN_STEP} 页`,
+                onClick: () => renderDocWindow(doc, s, Math.min(total - 1, e + PDF_WIN_STEP), { preserveScroll: true, expandDirection: 'down' }),
+              },
+              {
+                label: '展开全部页',
+                onClick: () => renderDocWindow(doc, 0, total - 1, { preserveScroll: true, expandDirection: 'down' }),
+              },
+            ]
+          ));
+        }
+
+        docWindow = {
+          start: s,
+          end: e,
+          startPage: doc.pages[s]?.pageNumber ?? 1,
+          endPage: doc.pages[e]?.pageNumber ?? 1,
+        };
+      }
+
+      docContent.innerHTML = '';
+      docContent.appendChild(frag);
+      loadedDocKey = doc.key;
+
+      if (opts.preserveScroll && opts.expandDirection === 'up') {
+        const delta = docPane.scrollHeight - prevScrollHeight;
+        docPane.scrollTop = prevScrollTop + Math.max(0, delta);
+      }
+
+      if (opts.highlightStart != null || opts.targetPage != null) {
+        applyHighlightAndScroll(
+          doc.type,
+          opts.highlightStart ?? 0,
+          opts.highlightEnd ?? opts.highlightStart ?? 0,
+          opts.targetPage ?? 1
+        );
+      }
+
+      if (lazyMathEls.length > 0 && 'IntersectionObserver' in window) {
+        mathObserver = new IntersectionObserver(
+          (entries) => {
+            for (const entry of entries) {
+              if (entry.isIntersecting) {
+                mathObserver.unobserve(entry.target);
+                enqueueLazyMath(entry.target);
+              }
+            }
+          },
+          { root: docPane, rootMargin: '120px 0px' }
+        );
+        for (const el of lazyMathEls) {
+          if (el.dataset.mathPending === '1') mathObserver.observe(el);
+        }
+      } else {
+        for (const el of lazyMathEls) enqueueLazyMath(el);
+      }
+    }
+
+    function openTargetInDoc(doc, startLine, endLine, targetPage) {
+      if (doc.type === 'markdown') {
+        const inWin = doc.lines.length <= DOC_WINDOW_THRESHOLD ||
+          (startLine >= docWindow.start && endLine <= docWindow.end);
+        if (loadedDocKey === doc.key && inWin) {
+          applyHighlightAndScroll('markdown', startLine, endLine, targetPage);
+          return;
+        }
+        renderDocWindow(doc, startLine - DOC_WIN_BEFORE, endLine + DOC_WIN_AFTER, {
+          highlightStart: startLine,
+          highlightEnd: endLine,
+        });
+      } else {
+        const targetIdx = Math.max(0, doc.pages.findIndex((p) => p.pageNumber === targetPage));
+        const inWin = doc.pages.length <= PDF_WINDOW_THRESHOLD ||
+          (targetPage >= docWindow.startPage && targetPage <= docWindow.endPage);
+        if (loadedDocKey === doc.key && inWin) {
+          applyHighlightAndScroll('pdf', startLine, endLine, targetPage);
+          return;
+        }
+        renderDocWindow(doc, targetIdx - PDF_WIN_BEFORE, targetIdx + PDF_WIN_AFTER, {
+          targetPage,
+        });
+      }
+    }
+
     async function jumpToChunk(chunkId, matchedChunk = null) {
       if (hlTimer) { clearTimeout(hlTimer); hlTimer = null; }
       try {
-        // Fast path: same document already rendered in DOM -> zero network & zero DOM/KaTeX rebuild!
-        if (matchedChunk) {
+        // Fast path: same document cached in memory -> zero network!
+        if (matchedChunk && loadedDoc) {
           const expectedType = (matchedChunk.type === 'markdown' || matchedChunk.type === 'docx') ? 'markdown' : 'pdf';
           const expectedKey = expectedType + ':' + matchedChunk.relativePath;
-          if (loadedDocKey === expectedKey) {
+          if (loadedDoc.key === expectedKey) {
             docHeader.textContent = matchedChunk.relativePath + ' — ' + (matchedChunk.headingTitle || '');
-            applyHighlightAndScroll(
-              expectedType,
+            openTargetInDoc(
+              loadedDoc,
               matchedChunk.startLine ?? 0,
               matchedChunk.endLine ?? matchedChunk.startLine ?? 0,
               matchedChunk.pageNumber ?? 1
@@ -1105,164 +1789,37 @@
           }
         }
 
-        const doc = await apiCall('/api/document', { chunkId });
-        const docKey = doc.type + ':' + doc.relativePath;
-        docHeader.textContent = doc.relativePath + ' — ' + doc.headingTitle;
+        const rawDoc = await apiCall('/api/document', { chunkId });
+        const docKey = rawDoc.type + ':' + rawDoc.relativePath;
+        docHeader.textContent = rawDoc.relativePath + ' — ' + rawDoc.headingTitle;
 
-        if (loadedDocKey === docKey) {
-          applyHighlightAndScroll(doc.type, doc.startLine ?? 0, doc.endLine ?? doc.startLine ?? 0, doc.targetPage ?? 1);
+        if (loadedDoc && loadedDoc.key === docKey) {
+          openTargetInDoc(
+            loadedDoc,
+            rawDoc.startLine ?? 0,
+            rawDoc.endLine ?? rawDoc.startLine ?? 0,
+            rawDoc.targetPage ?? 1
+          );
           return;
         }
 
-        resetMathObserver();
-        docBlocks = [];
-        pdfPageMap = new Map();
-        const frag = document.createDocumentFragment();
-        const lazyMathEls = [];
-
-        if (doc.type === 'markdown') {
-          let idx = 0;
-          while (idx < doc.lines.length) {
-            const line = doc.lines[idx];
-            if (/^\s*\|.*\|\s*$/.test(line)) {
-              const table = document.createElement('table');
-              table.className = 'md-table';
-              let isFirstRow = true;
-              let tbody = null;
-              while (idx < doc.lines.length && /^\s*\|.*\|\s*$/.test(doc.lines[idx])) {
-                const rowLine = doc.lines[idx];
-                const rawCells = rowLine.trim().slice(1, -1).split('|').map((c) => c.trim());
-                const isSep = rawCells.every((c) => /^:?-{2,}:?$/.test(c));
-                if (!isSep) {
-                  const tr = document.createElement('tr');
-                  if (hasMathSyntax(rowLine)) {
-                    tr.dataset.mathPending = '1';
-                    lazyMathEls.push(tr);
-                  }
-                  if (isFirstRow) {
-                    const thead = document.createElement('thead');
-                    for (const cellText of rawCells) {
-                      const th = document.createElement('th');
-                      th.innerHTML = formatInlineMd(cellText);
-                      tr.appendChild(th);
-                    }
-                    thead.appendChild(tr);
-                    table.appendChild(thead);
-                    isFirstRow = false;
-                  } else {
-                    if (!tbody) {
-                      tbody = document.createElement('tbody');
-                      table.appendChild(tbody);
-                    }
-                    for (const cellText of rawCells) {
-                      const td = document.createElement('td');
-                      td.innerHTML = formatInlineMd(cellText);
-                      tr.appendChild(td);
-                    }
-                    tbody.appendChild(tr);
-                  }
-                  docBlocks.push({ start: idx, end: idx, el: tr });
-                }
-                idx++;
-              }
-              frag.appendChild(table);
-              continue;
-            }
-
-            const div = document.createElement('div');
-            const trimmed = line.trim();
-            // Merge multi-line $$ ... $$ math blocks (e.g. matrices across lines in .md files)
-            const ddCount = (trimmed.match(/\$\$/g) || []).length;
-            if (ddCount % 2 === 1) {
-              const blockStart = idx;
-              const blockLines = [line];
-              idx++;
-              while (idx < doc.lines.length) {
-                const nextLine = doc.lines[idx];
-                blockLines.push(nextLine);
-                const nextDd = (nextLine.match(/\$\$/g) || []).length;
-                idx++;
-                if (nextDd % 2 === 1) break;
-              }
-              const joined = blockLines.join('\n');
-              div.className = 'doc-line';
-              div.innerHTML = formatInlineMd(joined);
-              div.dataset.mathPending = '1';
-              lazyMathEls.push(div);
-              docBlocks.push({ start: blockStart, end: idx - 1, el: div });
-              frag.appendChild(div);
-              continue;
-            }
-
-            const hMatch = trimmed.match(/^(#{1,4})\s+(.+)$/);
-            if (hMatch) {
-              const lvl = hMatch[1].length;
-              div.className = 'doc-line';
-              div.innerHTML = `<h${lvl}>${formatInlineMd(hMatch[2])}</h${lvl}>`;
-            } else if (/^>\s*/.test(trimmed)) {
-              div.className = 'doc-line';
-              div.innerHTML = `<blockquote>${formatInlineMd(trimmed.replace(/^>\s*/, ''))}</blockquote>`;
-            } else if (/^[-*]\s+/.test(trimmed)) {
-              div.className = 'doc-line list-item';
-              div.innerHTML = formatInlineMd(trimmed.replace(/^[-*]\s+/, ''));
-            } else if (/^---+$/.test(trimmed)) {
-              div.className = 'doc-line';
-              div.innerHTML = '<hr style="border:none;border-top:1px solid var(--kj-border);margin:6px 0;" />';
-            } else {
-              div.className = 'doc-line';
-              div.innerHTML = formatInlineMd(line);
-            }
-
-            if (hasMathSyntax(line)) {
-              div.dataset.mathPending = '1';
-              lazyMathEls.push(div);
-            }
-            docBlocks.push({ start: idx, end: idx, el: div });
-            frag.appendChild(div);
-            idx++;
-          }
-        } else {
-          for (const p of doc.pages) {
-            const box = document.createElement('div');
-            box.className = 'pdf-page';
-            box.innerHTML = '<div style="font-weight:600;margin-bottom:4px;">第 ' + p.pageNumber + ' 页</div><div>' + escapeHtml(p.text) + '</div>';
-            if (hasMathSyntax(p.text)) {
-              box.dataset.mathPending = '1';
-              lazyMathEls.push(box);
-            }
-            pdfPageMap.set(p.pageNumber, box);
-            frag.appendChild(box);
-          }
-        }
-
-        docContent.innerHTML = '';
-        docContent.appendChild(frag);
-        loadedDocKey = docKey;
-
-        // Immediately highlight + render only formulas near the target range
-        applyHighlightAndScroll(doc.type, doc.startLine ?? 0, doc.endLine ?? doc.startLine ?? 0, doc.targetPage ?? 1);
-
-        // Lazily render off-screen formulas only as user scrolls near them
-        if (lazyMathEls.length > 0 && 'IntersectionObserver' in window) {
-          mathObserver = new IntersectionObserver(
-            (entries) => {
-              for (const entry of entries) {
-                if (entry.isIntersecting) {
-                  mathObserver.unobserve(entry.target);
-                  enqueueLazyMath(entry.target);
-                }
-              }
-            },
-            { root: docPane, rootMargin: '450px 0px' }
-          );
-          for (const el of lazyMathEls) {
-            if (el.dataset.mathPending === '1') mathObserver.observe(el);
-          }
-        } else {
-          for (const el of lazyMathEls) enqueueLazyMath(el);
-        }
+        loadedDoc = {
+          key: docKey,
+          type: rawDoc.type,
+          relativePath: rawDoc.relativePath,
+          headingTitle: rawDoc.headingTitle,
+          lines: Array.isArray(rawDoc.lines) ? rawDoc.lines : [],
+          pages: Array.isArray(rawDoc.pages) ? rawDoc.pages : [],
+        };
+        openTargetInDoc(
+          loadedDoc,
+          rawDoc.startLine ?? 0,
+          rawDoc.endLine ?? rawDoc.startLine ?? 0,
+          rawDoc.targetPage ?? 1
+        );
       } catch (e) {
         loadedDocKey = null;
+        loadedDoc = null;
         docContent.innerHTML = '<div class="banner error">' + escapeHtml(e.message) + '</div>';
       }
     }

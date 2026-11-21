@@ -54,10 +54,18 @@ const docxLinesCache = new Map(); // filePath -> { mtimeMs, size, lines }
 export const DEFAULT_SETTINGS = {
   knowledgeDir: existsSync('D:/knowledge_base') ? 'D:/knowledge_base' : join(homedir(), 'knowledge_base'),
   importMode: 'replace',
+  splitRatio: 0.5,
+  splitRatioV: 0.46,
 };
 
 function normalizeImportMode(mode, fallback = 'replace') {
   return mode === 'append' || mode === 'replace' ? mode : fallback;
+}
+
+function normalizeSplitRatio(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(0.92, Math.max(0.08, Math.round(n * 1000) / 1000));
 }
 
 export function loadSettings() {
@@ -67,6 +75,8 @@ export function loadSettings() {
     return {
       knowledgeDir: p.knowledgeDir || DEFAULT_SETTINGS.knowledgeDir,
       importMode: normalizeImportMode(p.importMode, DEFAULT_SETTINGS.importMode),
+      splitRatio: normalizeSplitRatio(p.splitRatio, DEFAULT_SETTINGS.splitRatio),
+      splitRatioV: normalizeSplitRatio(p.splitRatioV, DEFAULT_SETTINGS.splitRatioV),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -82,6 +92,8 @@ export function saveSettings(next) {
         ? next.knowledgeDir.trim()
         : cur.knowledgeDir,
     importMode: normalizeImportMode(next?.importMode, cur.importMode),
+    splitRatio: normalizeSplitRatio(next?.splitRatio, cur.splitRatio),
+    splitRatioV: normalizeSplitRatio(next?.splitRatioV, cur.splitRatioV),
   };
   mkdirSync(PLUGIN_DIR, { recursive: true });
   writeFileSync(SETTINGS_PATH, JSON.stringify(merged, null, 2), 'utf-8');
