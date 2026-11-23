@@ -183,6 +183,12 @@
     .problem-group-header:first-child { margin-top: 0; }
     .problem-group-title { font-weight: 600; color: var(--kj-text); }
     .problem-group-meta { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .problem-group-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .problem-group-fav {
+      padding: 1px 7px; font-size: 11px; border-color: transparent; color: var(--kj-muted);
+    }
+    .problem-group-fav:hover { color: #d97706; background: var(--kj-hover-bg); }
+    .problem-group-fav.active { color: #d97706; font-weight: 600; }
     .problem-group-remove {
       padding: 1px 6px; font-size: 11px; border-color: transparent; color: var(--kj-muted);
     }
@@ -281,6 +287,16 @@
     body.is-resizing, body.is-resizing * {
       transition: none !important;
     }
+    body.is-window-resizing,
+    body.is-window-resizing .app {
+      overflow: hidden !important;
+    }
+    body.is-window-resizing #splitContainer {
+      flex: none !important;
+      width: var(--kj-frozen-w);
+      height: var(--kj-frozen-h);
+      overflow: hidden !important;
+    }
     body.is-split-dragging {
       user-select: none !important;
       cursor: col-resize !important;
@@ -290,6 +306,32 @@
     }
     body.is-split-dragging .pane {
       pointer-events: none;
+    }
+    .split {
+      position: relative;
+    }
+    .split-ghost-line {
+      display: none;
+      position: absolute;
+      z-index: 20;
+      pointer-events: none;
+      background: var(--kj-accent);
+      box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+    }
+    .split-ghost-line.active {
+      display: block;
+    }
+    .split:not(.stacked) .split-ghost-line {
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      transform: translateX(-1px);
+    }
+    .split.stacked .split-ghost-line {
+      left: 0;
+      right: 0;
+      height: 2px;
+      transform: translateY(-1px);
     }
 
     .banner {
@@ -465,6 +507,32 @@
     .chat-import-bar .desc { font-size: 12px; color: var(--kj-text); flex: 1; min-width: 160px; }
     .chat-import-bar .desc small { display: block; font-size: 11px; color: var(--kj-muted); margin-top: 2px; }
     .chat-import-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .lib-tabs {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 10px; flex-wrap: wrap;
+    }
+    .lib-tab-group {
+      display: inline-flex; border: 1px solid var(--kj-border); border-radius: 6px;
+      overflow: hidden; background: var(--kj-bg);
+    }
+    .lib-tab-group button {
+      border: none; border-radius: 0; padding: 4px 12px; font-size: 12px;
+      color: var(--kj-muted); background: transparent;
+    }
+    .lib-tab-group button + button { border-left: 1px solid var(--kj-border); }
+    .lib-tab-group button.active {
+      background: var(--kj-accent); color: var(--kj-accent-fg); font-weight: 500;
+    }
+    .lib-limit-inline {
+      display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--kj-muted);
+    }
+    .lib-limit-inline input {
+      width: 52px; padding: 3px 6px; border: 1px solid var(--kj-border);
+      border-radius: 4px; background: var(--kj-bg); color: var(--kj-text);
+      font-size: 12px; text-align: center;
+    }
+    .lib-limit-inline button { padding: 3px 8px; font-size: 11.5px; }
+    .fav-star-btn.active { color: #d97706; border-color: #d97706; }
   </style>
 </head>
 <body>
@@ -476,9 +544,11 @@
         <span id="indexPill" class="pill">加载中...</span>
       </div>
       <div class="btn-group">
+        <button id="historyBtn" title="查看最近保存的题目历史记录">历史 <span id="historyCountBadge"></span></button>
+        <button id="favoritesBtn" title="查看已收藏的题目">收藏夹 <span id="favCountBadge"></span></button>
         <button id="layoutToggleBtn" title="切换左右分栏 / 上下分栏">左右/上下</button>
         <button id="rebuildBtn">重建索引</button>
-        <button id="settingsBtn">设置目录</button>
+        <button id="settingsBtn">设置</button>
       </div>
     </div>
 
@@ -529,19 +599,48 @@
           <div class="empty">点击左侧任意题目语义卡片，将在此处平滑滚动定位并高亮 3.5 秒。</div>
         </div>
       </div>
+      <div id="splitGhostLine" class="split-ghost-line" aria-hidden="true"></div>
     </div>
   </div>
 
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal">
-      <h3>知识库目录设置</h3>
+      <h3>知识库与历史设置</h3>
       <div class="field">
-        <label>本地知识库目录绝对路径（存放 .md / .pdf 笔记）</label>
+        <label>本地知识库目录绝对路径（存放 .md / .pdf / .docx 笔记）</label>
         <input id="cfgKbDir" type="text" placeholder="例如 D:/knowledge_base" />
+      </div>
+      <div class="field">
+        <label>历史记录保存次数（默认保存最近 3 次题目，范围 1–50）</label>
+        <input id="cfgHistoryLimit" type="number" min="1" max="50" step="1" placeholder="3" />
       </div>
       <div class="modal-foot">
         <button id="closeModalBtn">取消</button>
-        <button id="saveModalBtn" class="primary">保存并重建索引</button>
+        <button id="saveModalBtn" class="primary">保存设置</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="libraryModal" class="modal-backdrop">
+    <div class="modal wide">
+      <h3 id="libraryModalTitle">题目历史与收藏夹</h3>
+      <div class="lib-tabs">
+        <div class="lib-tab-group" role="tablist">
+          <button type="button" id="libTabHistory">历史记录</button>
+          <button type="button" id="libTabFavorites">收藏夹</button>
+        </div>
+        <div id="libLimitControl" class="lib-limit-inline">
+          <span>保存最近</span>
+          <input id="libHistoryLimitInput" type="number" min="1" max="50" step="1" value="3" />
+          <span>次</span>
+          <button type="button" id="libSaveLimitBtn">应用</button>
+        </div>
+      </div>
+      <div id="librarySub" class="modal-sub"></div>
+      <div id="libraryList" class="chat-list"></div>
+      <div class="modal-foot">
+        <button type="button" id="clearHistoryBtn" class="danger">清空历史</button>
+        <button type="button" id="closeLibraryBtn" class="primary">关闭</button>
       </div>
     </div>
   </div>
@@ -634,6 +733,11 @@
     let isPollingCards = false;
     let awaitingChatImport = false;
     let importStatusTimer = null;
+    let currentSegments = [];
+    let currentKnowledgeDir = '';
+    let historyState = { limit: 3, items: [] };
+    let favoritesState = { items: [] };
+    let activeLibraryTab = 'history';
     const deferredMathContainers = new Set();
 
     const KATEX_OPTIONS = {
@@ -667,6 +771,10 @@
     const clearCardsBtn = document.getElementById('clearCardsBtn');
     const rebuildBtn = document.getElementById('rebuildBtn');
     const settingsBtn = document.getElementById('settingsBtn');
+    const historyBtn = document.getElementById('historyBtn');
+    const favoritesBtn = document.getElementById('favoritesBtn');
+    const historyCountBadge = document.getElementById('historyCountBadge');
+    const favCountBadge = document.getElementById('favCountBadge');
     const layoutToggleBtn = document.getElementById('layoutToggleBtn');
     const resultsEl = document.getElementById('results');
     const splitContainer = document.getElementById('splitContainer');
@@ -677,6 +785,17 @@
     const docContent = document.getElementById('docContent');
     const settingsModal = document.getElementById('settingsModal');
     const cfgKbDir = document.getElementById('cfgKbDir');
+    const cfgHistoryLimit = document.getElementById('cfgHistoryLimit');
+    const libraryModal = document.getElementById('libraryModal');
+    const libTabHistory = document.getElementById('libTabHistory');
+    const libTabFavorites = document.getElementById('libTabFavorites');
+    const libLimitControl = document.getElementById('libLimitControl');
+    const libHistoryLimitInput = document.getElementById('libHistoryLimitInput');
+    const libSaveLimitBtn = document.getElementById('libSaveLimitBtn');
+    const librarySub = document.getElementById('librarySub');
+    const libraryList = document.getElementById('libraryList');
+    const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+    const closeLibraryBtn = document.getElementById('closeLibraryBtn');
 
     function clampRatio(val, fallback) {
       const n = Number(val);
@@ -747,11 +866,44 @@
       });
     }
 
+    const splitGhostLine = document.getElementById('splitGhostLine');
     let dragActive = false;
     let dragPointerId = null;
     let dragRaf = 0;
     let dragClientX = 0;
     let dragClientY = 0;
+    let pendingSplitRatioH = splitRatioH;
+    let pendingSplitRatioV = splitRatioV;
+    let isWindowResizing = false;
+    let frozenSplitW = 0;
+    let frozenSplitH = 0;
+    let savedLeftScrollTop = 0;
+    let savedDocScrollTop = 0;
+
+    function captureFrozenSplitSize() {
+      if (!splitContainer || isWindowResizing) return;
+      const w = splitContainer.offsetWidth;
+      const h = splitContainer.offsetHeight;
+      if (w > 0 && h > 0) {
+        frozenSplitW = w;
+        frozenSplitH = h;
+      }
+    }
+
+    captureFrozenSplitSize();
+    window.addEventListener('load', captureFrozenSplitSize);
+
+    function updateGhostLinePosition(ratio) {
+      if (!splitGhostLine) return;
+      const pct = (ratio * 100).toFixed(3) + '%';
+      if (isStacked) {
+        splitGhostLine.style.left = '';
+        splitGhostLine.style.top = pct;
+      } else {
+        splitGhostLine.style.top = '';
+        splitGhostLine.style.left = pct;
+      }
+    }
 
     function updateSplitFromPointer() {
       dragRaf = 0;
@@ -761,15 +913,16 @@
         if (total <= 0) return;
         const minPx = Math.min(72, total * 0.15);
         const pos = Math.min(total - minPx, Math.max(minPx, dragClientY - rect.top));
-        splitRatioV = clampRatio(pos / total, 0.46);
+        pendingSplitRatioV = clampRatio(pos / total, 0.46);
+        updateGhostLinePosition(pendingSplitRatioV);
       } else {
         const total = rect.width;
         if (total <= 0) return;
         const minPx = Math.min(80, total * 0.15);
         const pos = Math.min(total - minPx, Math.max(minPx, dragClientX - rect.left));
-        splitRatioH = clampRatio(pos / total, 0.5);
+        pendingSplitRatioH = clampRatio(pos / total, 0.5);
+        updateGhostLinePosition(pendingSplitRatioH);
       }
-      applySplitRatio();
     }
 
     function finishSplitDrag() {
@@ -784,9 +937,16 @@
       try {
         if (pid !== null && splitResizer.hasPointerCapture(pid)) splitResizer.releasePointerCapture(pid);
       } catch {}
+      if (splitGhostLine) splitGhostLine.classList.remove('active');
       splitResizer.classList.remove('dragging');
-      document.body.classList.remove('is-resizing', 'is-split-dragging', 'stacked-dragging');
-      isResizing = false;
+      document.body.classList.remove('is-split-dragging', 'stacked-dragging');
+      if (!isWindowResizing) {
+        document.body.classList.remove('is-resizing');
+        isResizing = false;
+      }
+      splitRatioH = pendingSplitRatioH;
+      splitRatioV = pendingSplitRatioV;
+      applySplitRatio();
       scheduleMathFlush();
       writeSplitStorage();
       apiCall('/api/settings', { splitRatio: splitRatioH, splitRatioV: splitRatioV }).catch(() => {});
@@ -799,12 +959,15 @@
       dragPointerId = e.pointerId;
       dragClientX = e.clientX;
       dragClientY = e.clientY;
+      pendingSplitRatioH = splitRatioH;
+      pendingSplitRatioV = splitRatioV;
       try { splitResizer.setPointerCapture(e.pointerId); } catch {}
       isResizing = true;
       cancelScheduledMath();
       splitResizer.classList.add('dragging');
       document.body.classList.add('is-resizing', 'is-split-dragging');
       if (isStacked) document.body.classList.add('stacked-dragging');
+      if (splitGhostLine) splitGhostLine.classList.add('active');
       updateSplitFromPointer();
     });
 
@@ -860,15 +1023,35 @@
     });
 
     window.addEventListener('resize', () => {
+      if (!isWindowResizing) {
+        isWindowResizing = true;
+        if (leftPane) savedLeftScrollTop = leftPane.scrollTop;
+        if (docPane) savedDocScrollTop = docPane.scrollTop;
+        const w = frozenSplitW > 0 ? frozenSplitW : splitContainer.offsetWidth;
+        const h = frozenSplitH > 0 ? frozenSplitH : splitContainer.offsetHeight;
+        if (w > 0 && h > 0) {
+          splitContainer.style.setProperty('--kj-frozen-w', `${w}px`);
+          splitContainer.style.setProperty('--kj-frozen-h', `${h}px`);
+        }
+        document.body.classList.add('is-resizing', 'is-window-resizing');
+      }
       isResizing = true;
-      document.body.classList.add('is-resizing');
       cancelScheduledMath();
       if (resizeEndTimer) clearTimeout(resizeEndTimer);
       resizeEndTimer = setTimeout(() => {
         resizeEndTimer = null;
-        isResizing = false;
-        document.body.classList.remove('is-resizing');
+        isWindowResizing = false;
+        document.body.classList.remove('is-window-resizing');
+        splitContainer.style.removeProperty('--kj-frozen-w');
+        splitContainer.style.removeProperty('--kj-frozen-h');
+        if (!dragActive) {
+          isResizing = false;
+          document.body.classList.remove('is-resizing');
+        }
         updateLayoutOrientation(false);
+        captureFrozenSplitSize();
+        if (leftPane) leftPane.scrollTop = savedLeftScrollTop;
+        if (docPane) docPane.scrollTop = savedDocScrollTop;
         scheduleMathFlush();
       }, 180);
     });
@@ -1140,6 +1323,7 @@
                 renderSegments(res.segments, {
                   scrollToGroupId: res.mode === 'append' ? res.lastAddedGroupId : '',
                 });
+                refreshLibrary();
                 chatPickerModal.classList.remove('open');
                 showImportStatus('✅ 已离线导入选中消息中的题目！', 'info', 3500);
               } catch (e) {
@@ -1192,8 +1376,15 @@
 
     function updateStatusUI(state) {
       const st = state.indexStatus;
-      cfgKbDir.value = state.settings.knowledgeDir || '';
+      currentKnowledgeDir = state.settings.knowledgeDir || '';
+      cfgKbDir.value = currentKnowledgeDir;
+      const limitVal = state.settings.historyLimit ?? 3;
+      cfgHistoryLimit.value = String(limitVal);
+      libHistoryLimitInput.value = String(limitVal);
       updateImportModeUI(state.settings.importMode || 'replace');
+      if (state.history) historyState = state.history;
+      if (state.favorites) favoritesState = state.favorites;
+      updateLibraryBadges();
       if (state.settings.splitRatio != null || state.settings.splitRatioV != null) {
         if (state.settings.splitRatio != null) splitRatioH = clampRatio(state.settings.splitRatio, splitRatioH);
         if (state.settings.splitRatioV != null) splitRatioV = clampRatio(state.settings.splitRatioV, splitRatioV);
@@ -1210,6 +1401,226 @@
       } else if (st.chunkCount === 0) {
         addBanner('知识库尚无索引，请点击重建索引。', '重建索引', doRebuild);
       }
+    }
+
+    function canonicalProblemText(segments) {
+      return (Array.isArray(segments) ? segments : [])
+        .map((s) => `${String(s?.segmentType ?? '').trim()}::${String(s?.text ?? '').replace(/\s+/g, ' ').trim()}`)
+        .join('\n');
+    }
+
+    function isSegmentsFavorited(segments) {
+      const key = canonicalProblemText(segments);
+      if (!key) return false;
+      return (favoritesState.items || []).some((it) => canonicalProblemText(it.segments) === key);
+    }
+
+    function formatTimeLabel(ts) {
+      const n = Number(ts || 0);
+      if (!n) return '';
+      try {
+        const d = new Date(n);
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mi = String(d.getMinutes()).padStart(2, '0');
+        return `${mm}-${dd} ${hh}:${mi}`;
+      } catch {
+        return '';
+      }
+    }
+
+    function updateLibraryBadges() {
+      const hLen = (historyState.items || []).length;
+      const fLen = (favoritesState.items || []).length;
+      if (historyCountBadge) historyCountBadge.textContent = hLen > 0 ? `(${hLen})` : '';
+      if (favCountBadge) favCountBadge.textContent = fLen > 0 ? `(${fLen})` : '';
+    }
+
+    async function refreshLibrary() {
+      try {
+        const [h, f] = await Promise.all([
+          apiCall('/api/history', null, 'GET'),
+          apiCall('/api/favorites', null, 'GET'),
+        ]);
+        if (h) historyState = h;
+        if (f) favoritesState = f;
+        updateLibraryBadges();
+        if (historyState.limit != null) {
+          cfgHistoryLimit.value = String(historyState.limit);
+          libHistoryLimitInput.value = String(historyState.limit);
+        }
+        if (currentSegments.length > 0) renderSegments(currentSegments);
+        if (libraryModal.classList.contains('open')) renderLibraryModal();
+      } catch {
+        // Ignore transient library refresh error
+      }
+    }
+
+    async function toggleFavoriteGroup(grp) {
+      if (!grp || !Array.isArray(grp.items) || grp.items.length === 0) return;
+      showActionError('');
+      try {
+        const res = await apiCall('/api/favorites/toggle', {
+          groupId: grp.id,
+          title: grp.title || '',
+          source: grp.source || 'user',
+          segments: grp.items,
+        });
+        favoritesState = { items: res.items || [] };
+        updateLibraryBadges();
+        if (currentSegments.length > 0) renderSegments(currentSegments);
+        if (libraryModal.classList.contains('open')) renderLibraryModal();
+        showImportStatus(res.favorited ? '★ 已收藏该题目！' : '已取消收藏该题目。', 'info', 2500);
+      } catch (e) {
+        showActionError('收藏操作失败：' + e.message);
+      }
+    }
+
+    async function restoreFromLibrary(kind, id, mode) {
+      showActionError('');
+      try {
+        const res = await apiCall('/api/library/restore', { kind, id, mode });
+        lastCardsUpdatedAt = res.updatedAt || Date.now();
+        renderSegments(res.segments, {
+          scrollToGroupId: res.mode === 'append' ? res.lastAddedGroupId : '',
+        });
+        libraryModal.classList.remove('open');
+        showImportStatus(mode === 'append' ? '✅ 已将题目追加到当前面板！' : '✅ 已载入选中题目！', 'info', 3000);
+      } catch (e) {
+        showActionError('载入题目失败：' + e.message);
+      }
+    }
+
+    async function applyHistoryLimit(rawVal) {
+      const n = Math.min(50, Math.max(1, Math.round(Number(rawVal) || 3)));
+      try {
+        const res = await apiCall('/api/settings', { historyLimit: n });
+        const savedLimit = res.settings?.historyLimit ?? n;
+        cfgHistoryLimit.value = String(savedLimit);
+        libHistoryLimitInput.value = String(savedLimit);
+        await refreshLibrary();
+        showImportStatus(`✅ 历史记录上限已设为最近 ${savedLimit} 次。`, 'info', 2500);
+      } catch (e) {
+        showActionError('保存历史保存条数失败：' + e.message);
+      }
+    }
+
+    function renderLibraryModal() {
+      const isHist = activeLibraryTab === 'history';
+      libTabHistory.classList.toggle('active', isHist);
+      libTabFavorites.classList.toggle('active', !isHist);
+      libLimitControl.style.display = isHist ? 'flex' : 'none';
+      clearHistoryBtn.style.display = isHist ? '' : 'none';
+
+      const items = isHist ? (historyState.items || []) : (favoritesState.items || []);
+      const limit = historyState.limit ?? 3;
+      librarySub.textContent = isHist
+        ? `自动保存最近 ${limit} 次拆解或导入的题目（当前 ${items.length}/${limit} 条）`
+        : `已收藏 ${items.length} 道题目，可随时载入或取消收藏`;
+
+      libraryList.innerHTML = '';
+      if (items.length === 0) {
+        libraryList.innerHTML = `<div class="empty">${isHist ? '暂无历史题目记录' : '暂无收藏题目，可点击题目标题栏的「☆ 收藏」按钮添加'}</div>`;
+        return;
+      }
+
+      for (const item of items) {
+        const row = document.createElement('div');
+        row.className = 'chat-item';
+
+        const top = document.createElement('div');
+        top.className = 'chat-item-top';
+        const leftMeta = document.createElement('div');
+        leftMeta.style.display = 'flex';
+        leftMeta.style.alignItems = 'center';
+        leftMeta.style.gap = '6px';
+
+        const badge = document.createElement('span');
+        badge.className = item.source === 'local' ? 'chat-role' : 'chat-role ai';
+        badge.textContent = item.source === 'local' ? '本地拆解' : 'Antigravity';
+        const titleEl = document.createElement('strong');
+        titleEl.style.color = 'var(--kj-text)';
+        titleEl.textContent = item.title || '未命名题目';
+        leftMeta.appendChild(badge);
+        leftMeta.appendChild(titleEl);
+
+        const rightMeta = document.createElement('span');
+        const tsLabel = formatTimeLabel(isHist ? item.updatedAt : item.favoritedAt);
+        const segCount = Array.isArray(item.segments) ? item.segments.length : 0;
+        rightMeta.textContent = `${segCount} 张卡片${tsLabel ? ' · ' + tsLabel : ''}`;
+
+        top.appendChild(leftMeta);
+        top.appendChild(rightMeta);
+
+        const prev = document.createElement('div');
+        prev.className = 'chat-preview';
+        const firstText = String(item.segments?.[0]?.text || '').replace(/\s+/g, ' ').trim();
+        prev.textContent = firstText.length > 140 ? `${firstText.slice(0, 140)}…` : firstText;
+
+        const acts = document.createElement('div');
+        acts.className = 'chat-item-actions';
+
+        const loadReplaceBtn = document.createElement('button');
+        loadReplaceBtn.className = 'primary';
+        loadReplaceBtn.textContent = '载入本题';
+        loadReplaceBtn.onclick = () => restoreFromLibrary(isHist ? 'history' : 'favorite', item.id || item.problemKey, 'replace');
+        acts.appendChild(loadReplaceBtn);
+
+        const loadAppendBtn = document.createElement('button');
+        loadAppendBtn.textContent = '追加到当前';
+        loadAppendBtn.onclick = () => restoreFromLibrary(isHist ? 'history' : 'favorite', item.id || item.problemKey, 'append');
+        acts.appendChild(loadAppendBtn);
+
+        if (isHist) {
+          const favd = isSegmentsFavorited(item.segments);
+          const favBtn = document.createElement('button');
+          favBtn.className = favd ? 'fav-star-btn active' : 'fav-star-btn';
+          favBtn.textContent = favd ? '★ 已收藏' : '☆ 收藏';
+          favBtn.onclick = () => toggleFavoriteGroup({
+            id: item.id,
+            title: item.title,
+            source: item.source,
+            items: item.segments,
+          });
+          acts.appendChild(favBtn);
+
+          const delBtn = document.createElement('button');
+          delBtn.className = 'danger';
+          delBtn.textContent = '删除';
+          delBtn.onclick = async () => {
+            const res = await apiCall('/api/history/remove', { id: item.id || item.problemKey });
+            historyState = res;
+            updateLibraryBadges();
+            renderLibraryModal();
+          };
+          acts.appendChild(delBtn);
+        } else {
+          const unfavBtn = document.createElement('button');
+          unfavBtn.className = 'danger';
+          unfavBtn.textContent = '取消收藏';
+          unfavBtn.onclick = async () => {
+            const res = await apiCall('/api/favorites/remove', { id: item.problemKey || item.id });
+            favoritesState = res;
+            updateLibraryBadges();
+            if (currentSegments.length > 0) renderSegments(currentSegments);
+            renderLibraryModal();
+          };
+          acts.appendChild(unfavBtn);
+        }
+
+        row.appendChild(top);
+        row.appendChild(prev);
+        row.appendChild(acts);
+        libraryList.appendChild(row);
+      }
+    }
+
+    function openLibraryModal(tab) {
+      activeLibraryTab = tab === 'favorite' ? 'favorite' : 'history';
+      libraryModal.classList.add('open');
+      renderLibraryModal();
+      refreshLibrary();
     }
 
     function addBanner(text, btnText, onClick) {
@@ -1279,12 +1690,35 @@
       }
     };
     rebuildBtn.onclick = doRebuild;
+    historyBtn.onclick = () => openLibraryModal('history');
+    favoritesBtn.onclick = () => openLibraryModal('favorite');
+    libTabHistory.onclick = () => { activeLibraryTab = 'history'; renderLibraryModal(); };
+    libTabFavorites.onclick = () => { activeLibraryTab = 'favorite'; renderLibraryModal(); };
+    libSaveLimitBtn.onclick = () => applyHistoryLimit(libHistoryLimitInput.value);
+    closeLibraryBtn.onclick = () => libraryModal.classList.remove('open');
+    clearHistoryBtn.onclick = async () => {
+      const res = await apiCall('/api/history/clear', {});
+      historyState = res;
+      updateLibraryBadges();
+      renderLibraryModal();
+    };
     settingsBtn.onclick = () => settingsModal.classList.add('open');
     document.getElementById('closeModalBtn').onclick = () => settingsModal.classList.remove('open');
     document.getElementById('saveModalBtn').onclick = async () => {
-      await apiCall('/api/settings', { knowledgeDir: cfgKbDir.value.trim(), importMode });
+      const nextDir = cfgKbDir.value.trim();
+      const nextLimit = Math.min(50, Math.max(1, Math.round(Number(cfgHistoryLimit.value) || 3)));
+      const dirChanged = nextDir && nextDir !== currentKnowledgeDir;
+      await apiCall('/api/settings', {
+        knowledgeDir: nextDir,
+        importMode,
+        historyLimit: nextLimit,
+      });
       settingsModal.classList.remove('open');
-      await doRebuild();
+      if (dirChanged) {
+        await doRebuild();
+      } else {
+        await loadState();
+      }
     };
 
     analyzeBtn.onclick = async () => {
@@ -1301,6 +1735,7 @@
         renderSegments(res.segments, {
           scrollToGroupId: res.mode === 'append' ? res.lastAddedGroupId : '',
         });
+        refreshLibrary();
       } catch (e) {
         showActionError(e.message);
       } finally {
@@ -1337,14 +1772,15 @@
     }
 
     function renderSegments(segments, opts = {}) {
-      if (!segments || !segments.length) {
+      currentSegments = Array.isArray(segments) ? segments : [];
+      if (!currentSegments.length) {
         cardsToolbar.style.display = 'none';
         resultsEl.innerHTML = '<div class="empty">等待输入文字题干，或在 Antigravity 对话框发送题目截图...</div>';
         return;
       }
 
-      const groups = groupSegments(segments);
-      cardsSummary.textContent = '共 ' + groups.length + ' 道题 · ' + segments.length + ' 张卡片';
+      const groups = groupSegments(currentSegments);
+      cardsSummary.textContent = '共 ' + groups.length + ' 道题 · ' + currentSegments.length + ' 张卡片';
       cardsToolbar.style.display = 'flex';
       resultsEl.innerHTML = '';
 
@@ -1363,14 +1799,27 @@
         meta.appendChild(titleSpan);
         meta.appendChild(countSpan);
 
+        const acts = document.createElement('div');
+        acts.className = 'problem-group-actions';
+
+        const favd = isSegmentsFavorited(grp.items);
+        const favBtn = document.createElement('button');
+        favBtn.type = 'button';
+        favBtn.className = favd ? 'problem-group-fav active' : 'problem-group-fav';
+        favBtn.textContent = favd ? '★ 已收藏' : '☆ 收藏';
+        favBtn.title = favd ? '点击取消收藏本题' : '收藏本题到收藏夹';
+        favBtn.onclick = () => toggleFavoriteGroup(grp);
+
         const rmBtn = document.createElement('button');
         rmBtn.type = 'button';
         rmBtn.className = 'problem-group-remove';
         rmBtn.textContent = '移除本题';
         rmBtn.onclick = () => removeGroup(grp.id);
 
+        acts.appendChild(favBtn);
+        acts.appendChild(rmBtn);
         hdr.appendChild(meta);
-        hdr.appendChild(rmBtn);
+        hdr.appendChild(acts);
         resultsEl.appendChild(hdr);
 
         if (opts.scrollToGroupId && grp.id === opts.scrollToGroupId) {
@@ -1835,6 +2284,7 @@
           renderSegments(data.segments, {
             scrollToGroupId: data.mode === 'append' ? data.lastAddedGroupId : '',
           });
+          refreshLibrary();
           if (awaitingChatImport) {
             awaitingChatImport = false;
             showImportStatus('✅ 已成功导入对话中的题目！', 'info', 4000);

@@ -11,6 +11,8 @@ export const PLUGIN_DIR = __dirname;
 export const SETTINGS_PATH = join(PLUGIN_DIR, 'settings.json');
 export const INDEX_PATH = join(PLUGIN_DIR, 'knowledge-index.json');
 export const CARDS_PATH = join(PLUGIN_DIR, 'latest_cards.json');
+export const HISTORY_PATH = join(PLUGIN_DIR, 'history.json');
+export const FAVORITES_PATH = join(PLUGIN_DIR, 'favorites.json');
 
 const LOCAL_BGE_PYTHON = process.env.KB_BGE_PYTHON || 'D:/QQAgent/.venv/Scripts/python.exe';
 const LOCAL_BGE_WORKER = process.env.KB_BGE_WORKER || 'D:/AntigravityMemory/tools/bge_embed_worker.py';
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS = {
   importMode: 'replace',
   splitRatio: 0.5,
   splitRatioV: 0.46,
+  historyLimit: 3,
 };
 
 function normalizeImportMode(mode, fallback = 'replace') {
@@ -68,6 +71,12 @@ function normalizeSplitRatio(value, fallback) {
   return Math.min(0.92, Math.max(0.08, Math.round(n * 1000) / 1000));
 }
 
+function normalizeHistoryLimit(value, fallback = 3) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(50, Math.max(1, Math.round(n)));
+}
+
 export function loadSettings() {
   if (!existsSync(SETTINGS_PATH)) return { ...DEFAULT_SETTINGS };
   try {
@@ -77,6 +86,7 @@ export function loadSettings() {
       importMode: normalizeImportMode(p.importMode, DEFAULT_SETTINGS.importMode),
       splitRatio: normalizeSplitRatio(p.splitRatio, DEFAULT_SETTINGS.splitRatio),
       splitRatioV: normalizeSplitRatio(p.splitRatioV, DEFAULT_SETTINGS.splitRatioV),
+      historyLimit: normalizeHistoryLimit(p.historyLimit, DEFAULT_SETTINGS.historyLimit),
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -94,9 +104,13 @@ export function saveSettings(next) {
     importMode: normalizeImportMode(next?.importMode, cur.importMode),
     splitRatio: normalizeSplitRatio(next?.splitRatio, cur.splitRatio),
     splitRatioV: normalizeSplitRatio(next?.splitRatioV, cur.splitRatioV),
+    historyLimit: normalizeHistoryLimit(next?.historyLimit, cur.historyLimit),
   };
   mkdirSync(PLUGIN_DIR, { recursive: true });
   writeFileSync(SETTINGS_PATH, JSON.stringify(merged, null, 2), 'utf-8');
+  if (merged.historyLimit !== cur.historyLimit) {
+    trimHistoryToLimit(merged.historyLimit);
+  }
   return merged;
 }
 
@@ -732,6 +746,15 @@ export function pushCards(segments, source = 'antigravity', options = {}) {
   };
   writeFileSync(CARDS_PATH, JSON.stringify(payload, null, 2), 'utf-8');
   cardsCache = { mtimeMs: -1, size: -1, data: null };
+  if (normalized.length > 0) {
+    recordHistoryGroup({
+      groupId,
+      title: groupTitle,
+      source,
+      pushedAt: now,
+      segments: normalized,
+    }, settings.historyLimit);
+  }
   return {
     pushed: normalized.length,
     total: finalSegments.length,
@@ -795,4 +818,198 @@ export function loadLatestCards() {
     cardsCache = { mtimeMs: -1, size: -1, data: null };
     return { updatedAt: 0, source: '', segments: [] };
   }
+}
+
+export function computeProblemKey(segments) {
+  const canonical = (Array.isArray(segments) ? segments : [])
+    .map((s) => `${String(s?.segmentType ?? '').trim()}::${String(s?.text ?? '').replace(/\s+/g, ' ').trim()}`)
+    .join('\n');
+  return createHash('sha1').update(canonical).digest('hex').slice(0, 16);
+}
+
+function deriveProblemTitle(explicitTitle, segments) {
+  const t = typeof explicitTitle === 'string' ? explicitTitle.trim() : '';
+  if (t) return t;
+  const firstText = String(segments?.[0]?.text ?? '').replace(/\s+/g, ' ').trim();
+  if (!firstText) return '未命名题目';
+  return firstText.length > 32 ? `${firstText.slice(0, 32)}…` : firstText;
+}
+
+function readLibraryItems(filePath) {
+  try {
+    if (!existsSync(filePath)) return [];
+    const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+    return Array.isArray(parsed?.items) ? parsed.items : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLibraryItems(filePath, items) {
+  mkdirSync(PLUGIN_DIR, { recursive: true });
+  writeFileSync(filePath, JSON.stringify({ updatedAt: Date.now(), items }, null, 2), 'utf-8');
+}
+
+function trimHistoryToLimit(limit) {
+  const items = readLibraryItems(HISTORY_PATH);
+  if (items.length <= limit) return items;
+  const trimmed = items.slice(0, limit);
+  writeLibraryItems(HISTORY_PATH, trimmed);
+  return trimmed;
+}
+
+function recordHistoryGroup({ groupId, title, source, pushedAt, segments }, limit) {
+  const safeLimit = normalizeHistoryLimit(limit, DEFAULT_SETTINGS.historyLimit);
+  if (!Array.isArray(segments) || segments.length === 0) return;
+  const problemKey = computeProblemKey(segments);
+  const entry = {
+    id: groupId || makeId(`${pushedAt}:${problemKey}`),
+    problemKey,
+    title: deriveProblemTitle(title, segments),
+    source: String(source || 'antigravity'),
+    createdAt: pushedAt || Date.now(),
+    updatedAt: pushedAt || Date.now(),
+    segments,
+  };
+  const existing = readLibraryItems(HISTORY_PATH);
+  const filtered = existing.filter((it) => it && it.problemKey !== problemKey && it.id !== entry.id);
+  const next = [entry, ...filtered].slice(0, safeLimit);
+  writeLibraryItems(HISTORY_PATH, next);
+}
+
+export function loadHistory() {
+  const limit = loadSettings().historyLimit;
+  const items = readLibraryItems(HISTORY_PATH).slice(0, limit);
+  return { limit, items };
+}
+
+export function removeHistoryItem(idOrKey) {
+  const target = String(idOrKey || '').trim();
+  const items = readLibraryItems(HISTORY_PATH).filter(
+    (it) => it && it.id !== target && it.problemKey !== target
+  );
+  writeLibraryItems(HISTORY_PATH, items);
+  return { limit: loadSettings().historyLimit, items };
+}
+
+export function clearHistory() {
+  writeLibraryItems(HISTORY_PATH, []);
+  return { limit: loadSettings().historyLimit, items: [] };
+}
+
+export function loadFavorites() {
+  return { items: readLibraryItems(FAVORITES_PATH) };
+}
+
+export function toggleFavoriteGroup({ groupId, title, source, segments }) {
+  const segs = Array.isArray(segments) ? segments : [];
+  if (segs.length === 0) throw new Error('空题目无法收藏。');
+  const problemKey = computeProblemKey(segs);
+  const existing = readLibraryItems(FAVORITES_PATH);
+  const already = existing.some((it) => it && it.problemKey === problemKey);
+
+  if (already) {
+    const next = existing.filter((it) => it && it.problemKey !== problemKey);
+    writeLibraryItems(FAVORITES_PATH, next);
+    return { favorited: false, problemKey, items: next };
+  }
+
+  const now = Date.now();
+  const entry = {
+    id: groupId || problemKey,
+    problemKey,
+    title: deriveProblemTitle(title, segs),
+    source: String(source || 'antigravity'),
+    createdAt: Number(segs[0]?.pushedAt || now),
+    favoritedAt: now,
+    segments: segs,
+  };
+  const next = [entry, ...existing];
+  writeLibraryItems(FAVORITES_PATH, next);
+  return { favorited: true, problemKey, items: next };
+}
+
+export function removeFavoriteItem(idOrKey) {
+  const target = String(idOrKey || '').trim();
+  const items = readLibraryItems(FAVORITES_PATH).filter(
+    (it) => it && it.id !== target && it.problemKey !== target
+  );
+  writeLibraryItems(FAVORITES_PATH, items);
+  return { items };
+}
+
+export function restoreProblemGroup(kind, idOrKey, modeOverride) {
+  const target = String(idOrKey || '').trim();
+  const listPath = kind === 'favorite' ? FAVORITES_PATH : HISTORY_PATH;
+  const item = readLibraryItems(listPath).find(
+    (it) => it && (it.id === target || it.problemKey === target)
+  );
+  if (!item || !Array.isArray(item.segments) || item.segments.length === 0) {
+    throw new Error('未找到对应的题目记录。');
+  }
+
+  const settings = loadSettings();
+  const mode = normalizeImportMode(modeOverride, settings.importMode);
+  const now = Date.now();
+  const groupId = makeId(`${now}:${Math.random()}:restore`);
+  const idx = loadIndex();
+  const chunkMap = new Map((idx?.chunks ?? []).map((c) => [c.id, c]));
+
+  const restoredSegments = item.segments.map((seg) => {
+    const cid =
+      typeof seg.matchedChunkId === 'string' && chunkMap.has(seg.matchedChunkId)
+        ? seg.matchedChunkId
+        : null;
+    const chunk = cid ? chunkMap.get(cid) : null;
+    return {
+      text: String(seg.text ?? ''),
+      segmentType: String(seg.segmentType ?? '题目片段'),
+      matchedChunkId: cid || seg.matchedChunkId || null,
+      knowledgeTag: String(seg.knowledgeTag ?? ''),
+      groupId,
+      groupTitle: item.title || seg.groupTitle || '',
+      pushedAt: Number(seg.pushedAt || item.createdAt || now),
+      matchedChunk: chunk
+        ? {
+            id: chunk.id,
+            relativePath: chunk.relativePath,
+            headingTitle: chunk.headingTitle,
+            type: chunk.type,
+            startLine: chunk.startLine,
+            endLine: chunk.endLine,
+            pageNumber: chunk.pageNumber,
+            status: chunk.status || 'active',
+            reviewAfterStr: chunk.reviewAfterStr || '',
+            isOverdue: Boolean(chunk.reviewAfterMs && now > chunk.reviewAfterMs),
+          }
+        : (seg.matchedChunk || null),
+    };
+  });
+
+  const existing = loadLatestCards();
+  const existingSegments =
+    mode === 'append' && Array.isArray(existing?.segments)
+      ? existing.segments.map((s) => (s.groupId ? s : { ...s, groupId: 'legacy' }))
+      : [];
+  const finalSegments = mode === 'append' ? [...existingSegments, ...restoredSegments] : restoredSegments;
+  const updatedAt = Math.max(now, Number(existing?.updatedAt || 0) + 1);
+
+  mkdirSync(PLUGIN_DIR, { recursive: true });
+  const payload = {
+    updatedAt,
+    source: item.source || 'restore',
+    mode,
+    lastAddedGroupId: groupId,
+    segments: finalSegments,
+  };
+  writeFileSync(CARDS_PATH, JSON.stringify(payload, null, 2), 'utf-8');
+  cardsCache = { mtimeMs: -1, size: -1, data: null };
+  return {
+    pushed: restoredSegments.length,
+    total: finalSegments.length,
+    mode,
+    groupId,
+    updatedAt,
+    segments: finalSegments,
+  };
 }

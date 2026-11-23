@@ -6,17 +6,24 @@ import { fileURLToPath } from 'node:url';
 import { Response, SidecarApp } from 'sidecar_sdk';
 import {
   clearCards,
+  clearHistory,
   getDocxLines,
   getIndexStatus,
+  loadFavorites,
+  loadHistory,
   loadIndex,
   loadLatestCards,
   loadSettings,
   pushCards,
   rebuildIndex,
   removeCardGroup,
+  removeFavoriteItem,
+  removeHistoryItem,
+  restoreProblemGroup,
   saveSettings,
   searchChunks,
   shutdownEmbedder,
+  toggleFavoriteGroup,
 } from '../../kb_engine.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -126,6 +133,8 @@ app.api('/api/state', async () => ({
   settings: loadSettings(),
   indexStatus: getIndexStatus(),
   latestCards: loadLatestCards(),
+  history: loadHistory(),
+  favorites: loadFavorites(),
 }), 'GET');
 
 app.api('/api/cards', async (data) => {
@@ -174,6 +183,39 @@ app.api('/api/cards/remove-group', async (data) => {
     totalCount: res.total,
     updatedAt: res.updatedAt,
     segments: res.segments,
+  };
+});
+
+app.api('/api/history', async () => loadHistory(), 'GET');
+
+app.api('/api/history/remove', async (data) => removeHistoryItem(data?.id || ''));
+
+app.api('/api/history/clear', async () => clearHistory());
+
+app.api('/api/favorites', async () => loadFavorites(), 'GET');
+
+app.api('/api/favorites/toggle', async (data) => toggleFavoriteGroup({
+  groupId: data?.groupId || '',
+  title: data?.title || '',
+  source: data?.source || 'user',
+  segments: Array.isArray(data?.segments) ? data.segments : [],
+}));
+
+app.api('/api/favorites/remove', async (data) => removeFavoriteItem(data?.id || ''));
+
+app.api('/api/library/restore', async (data) => {
+  const res = restoreProblemGroup(
+    data?.kind === 'favorite' ? 'favorite' : 'history',
+    data?.id || '',
+    data?.mode
+  );
+  return {
+    segments: res.segments,
+    addedCount: res.pushed,
+    totalCount: res.total,
+    mode: res.mode,
+    lastAddedGroupId: res.groupId,
+    updatedAt: res.updatedAt,
   };
 });
 

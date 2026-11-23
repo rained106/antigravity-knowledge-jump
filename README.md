@@ -57,8 +57,8 @@ agy plugin validate ~/.gemini/config/plugins/knowledge-jump --strict
 ## 首次使用设置
 
 1. 打开侧边栏面板（在对话中输入 `打开 KnowledgeJump 双栏对照面板`，或点击链接 `[KnowledgeJump 双栏对照](sidecar://knowledge-jump/knowledge_jump_panel/)`）。
-2. 点击面板右上角 **「设置目录」**，填入你本机存放复习笔记/题库的绝对路径（例如 `D:\knowledge_base` 或 `/Users/you/Notes`），点击 **「保存并重建索引」**。
-3. 之后直接在 Antigravity 对话框粘贴题目截图，或在面板左侧输入题干文字点击 **「本地拆解与搜题」** 即可对照跳转。
+2. 点击面板右上角 **「设置」**，填入你本机存放复习笔记/题库的绝对路径（例如 `D:\knowledge_base` 或 `/Users/you/Notes`），点击 **「保存设置」**（可同时自定义历史记录保存条数，默认最近 3 次）。
+3. 之后直接在 Antigravity 对话框粘贴题目截图，或在面板左侧输入题干文字点击 **「本地拆解」** 即可对照跳转；可点击题目栏 **「☆ 收藏」** 收藏重点题目，并在顶栏 **「历史 / 收藏夹」** 随时恢复。
 
 ---
 

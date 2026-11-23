@@ -1,6 +1,8 @@
 ﻿settings.json
 knowledge-index.json
 latest_cards.json
+history.json
+favorites.json
 __pycache__/
 *.pyc
 *.bak-*
